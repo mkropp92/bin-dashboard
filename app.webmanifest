@@ -1,0 +1,23 @@
+{
+  "name": "Sunshine Coast Bin Dashboard",
+  "short_name": "Bin Dashboard",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#09111f",
+  "theme_color": "#0d1729",
+  "description": "Sunshine Coast bin dashboard with council lookup, weather and reminders.",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
