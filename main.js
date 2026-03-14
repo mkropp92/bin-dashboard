@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV7";
+const STORAGE_KEY = "binDashboardSettingsV8";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -26,9 +26,6 @@ const defaultSettings = {
 };
 
 let deferredInstallPrompt = null;
-let selectedSuggestion = null;
-let searchTimer = null;
-let activeSearchToken = 0;
 
 function loadSettings() {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -87,78 +84,6 @@ function normalizeWhitespace(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
 }
 
-function cleanLocality(locality) {
-  return normalizeWhitespace(locality).replaceAll("'", "''").toUpperCase();
-}
-
-function cleanStreetName(streetName) {
-  return normalizeWhitespace(streetName)
-    .toUpperCase()
-    .replace(/\bSTREET\b/g, "")
-    .replace(/\bST\b/g, "")
-    .replace(/\bROAD\b/g, "")
-    .replace(/\bRD\b/g, "")
-    .replace(/\bAVENUE\b/g, "")
-    .replace(/\bAVE\b/g, "")
-    .replace(/\bDRIVE\b/g, "")
-    .replace(/\bDR\b/g, "")
-    .replace(/\bCOURT\b/g, "")
-    .replace(/\bCT\b/g, "")
-    .replace(/\bPLACE\b/g, "")
-    .replace(/\bPL\b/g, "")
-    .replace(/\bLANE\b/g, "")
-    .replace(/\bLN\b/g, "")
-    .replace(/\bCRESCENT\b/g, "")
-    .replace(/\bCRES\b/g, "")
-    .replace(/\bPARADE\b/g, "")
-    .replace(/\bPDE\b/g, "")
-    .replace(/\bBOULEVARD\b/g, "")
-    .replace(/\bBLVD\b/g, "")
-    .replace(/\bTERRACE\b/g, "")
-    .replace(/\bTCE\b/g, "")
-    .replace(/\bWAY\b/g, "")
-    .replace(/\bCIRCUIT\b/g, "")
-    .replace(/\bCCT\b/g, "")
-    .replace(/\bCLOSE\b/g, "")
-    .replace(/\bCL\b/g, "")
-    .replace(/\bHIGHWAY\b/g, "")
-    .replace(/\bHWY\b/g, "")
-    .replace(/\bMOUNT\b/g, "MT")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replaceAll("'", "''");
-}
-
-function parseAddressInput(input) {
-  const text = normalizeWhitespace(input);
-  if (!text) return null;
-
-  let locality = "Nambour";
-  let streetText = text;
-
-  if (text.includes(",")) {
-    const parts = text.split(",");
-    streetText = normalizeWhitespace(parts[0]);
-    locality = normalizeWhitespace(parts.slice(1).join(" "));
-    if (!locality) locality = "Nambour";
-  }
-
-  const leadingNumber = streetText.match(/^(\d+)\s+(.+)$/);
-  if (leadingNumber) {
-    return {
-      propertyNumber: leadingNumber[1],
-      streetName: normalizeWhitespace(leadingNumber[2]),
-      locality
-    };
-  }
-
-  return {
-    propertyNumber: "",
-    streetName: normalizeWhitespace(streetText),
-    locality
-  };
-}
-
 function isCollectionDay(date, dow) {
   return date.getDay() === Number(dow);
 }
@@ -184,7 +109,7 @@ function isRecycleWeek(date, settings) {
 }
 
 function bannerText(settings) {
-  if (!settings.ready) return "Search for your street to configure the dashboard.";
+  if (!settings.ready) return "Use current location to configure the dashboard.";
 
   const now = new Date();
   const dowNow = now.getDay();
@@ -321,7 +246,7 @@ function maybeSendBinReminder(nextCollectionDateIso) {
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -368,7 +293,7 @@ async function fetchWeatherForDate(targetDateIso, lat, lon) {
     `&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
     `&timezone=Australia%2FSydney`;
 
-  const res = await fetchWithTimeout(url, {}, 4000);
+  const res = await fetchWithTimeout(url, {}, 5000);
   if (!res.ok) throw new Error("Weather request failed");
 
   const data = await res.json();
@@ -428,192 +353,111 @@ async function renderWeather(settings, nextDateIso) {
   }
 }
 
-async function runCouncilQuery(where, limit = 20) {
+async function runCouncilQueryByLocation(lat, lon) {
   const params = new URLSearchParams({
-    where,
+    geometry: `${lon},${lat}`,
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
     outFields: "Property_Number,Streetname,Locality,Address,Week,CollectionDay,Latitude,Longitude",
     returnGeometry: "false",
     f: "json",
-    resultRecordCount: String(limit),
-    orderByFields: "Streetname ASC, Property_Number ASC"
+    distance: "150",
+    units: "esriSRUnit_Meter"
   });
 
-  const res = await fetchWithTimeout(`${SCC_LAYER_URL}?${params.toString()}`, {}, 4000);
-  if (!res.ok) throw new Error("Council lookup failed");
+  const res = await fetchWithTimeout(`${SCC_LAYER_URL}?${params.toString()}`, {}, 5000);
+  if (!res.ok) throw new Error("Council location lookup failed");
 
   const data = await res.json();
   if (data.error) {
-    throw new Error(data.error.message || "Council lookup error");
+    throw new Error(data.error.message || "Council location lookup error");
   }
 
   return Array.isArray(data.features) ? data.features : [];
 }
 
-function scoreFeature(attrs, wanted) {
-  const address = normalizeWhitespace(attrs.Address || "").toUpperCase();
-  const street = cleanStreetName(attrs.Streetname || "");
-  const loc = cleanLocality(attrs.Locality || "");
-  const num = String(attrs.Property_Number || "");
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (v) => v * Math.PI / 180;
 
-  const wantedStreet = cleanStreetName(wanted.streetName);
-  const wantedLoc = cleanLocality(wanted.locality);
-  const wantedNum = String(wanted.propertyNumber || "").trim();
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
 
-  let score = 0;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
-  if (wantedNum && num === wantedNum) score += 100;
-  if (loc === wantedLoc) score += 50;
-  if (street === wantedStreet) score += 40;
-  if (street.startsWith(wantedStreet)) score += 20;
-  if (street.includes(wantedStreet)) score += 10;
-
-  if (wantedNum && address.includes(wantedNum.toUpperCase())) score += 10;
-  if (wantedStreet && address.includes(wantedStreet.replaceAll("''", "'"))) score += 15;
-  if (wantedLoc && address.includes(wantedLoc.replaceAll("''", "'"))) score += 10;
-
-  return score;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
-function featureToSettings(attrs, original) {
+function featureToSettings(attrs, currentLat, currentLon) {
   const dow = getDowIndexFromName(attrs.CollectionDay);
   if (dow < 0) {
     throw new Error("Lookup succeeded but collection day was missing.");
   }
 
+  const featureLat = Number(attrs.Latitude || currentLat);
+  const featureLon = Number(attrs.Longitude || currentLon);
+
   return {
     ready: true,
-    source: "scc-auto",
-    propertyNumber: String(original.propertyNumber || attrs.Property_Number || "").trim(),
-    streetName: normalizeWhitespace(original.streetName || attrs.Streetname || ""),
-    locality: normalizeWhitespace(original.locality || attrs.Locality || ""),
-    formattedAddress: attrs.Address || `${original.propertyNumber || ""} ${original.streetName || ""}, ${original.locality || ""}`.trim(),
+    source: "current-location",
+    propertyNumber: String(attrs.Property_Number || "").trim(),
+    streetName: normalizeWhitespace(attrs.Streetname || ""),
+    locality: normalizeWhitespace(attrs.Locality || ""),
+    formattedAddress: attrs.Address || `${attrs.Property_Number || ""} ${attrs.Streetname || ""}, ${attrs.Locality || ""}`.trim(),
     dow,
     weekGroup: Number(attrs.Week || 1),
     invertAlternateCycle: false,
-    latitude: Number(attrs.Latitude || -26.6269),
-    longitude: Number(attrs.Longitude || 152.9594),
+    latitude: featureLat,
+    longitude: featureLon,
     lastLookupAt: new Date().toISOString()
   };
 }
 
-function buildStreetLikeWhere(parsed) {
-  const street = cleanStreetName(parsed.streetName).replaceAll("''", "'");
-  const locality = cleanLocality(parsed.locality).replaceAll("''", "'");
-  const clauses = [];
-
-  if (street) {
-    clauses.push(`UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`);
-  }
-  if (locality) {
-    clauses.push(`UPPER(Locality) LIKE '%${locality.replaceAll("'", "''")}%'`);
-  }
-
-  return clauses.join(" AND ");
-}
-
-async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
-  const parsed = {
-    propertyNumber: String(propertyNumber || "").trim(),
-    streetName: normalizeWhitespace(streetName),
-    locality: normalizeWhitespace(locality || "Nambour")
-  };
-
-  let features = await runCouncilQuery(buildStreetLikeWhere(parsed), 100);
+async function fetchCouncilBinScheduleByCurrentLocation(lat, lon) {
+  let features = await runCouncilQueryByLocation(lat, lon);
 
   if (!features.length) {
-    const street = cleanStreetName(parsed.streetName);
-    features = await runCouncilQuery(
-      `UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`,
-      100
-    );
-  }
-
-  if (!features.length) {
-    throw new Error("No matching street found. Try street name and locality.");
-  }
-
-  const ranked = [...features]
-    .map(f => ({
-      feature: f,
-      score: scoreFeature(f.attributes || {}, parsed)
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  if (!ranked.length || ranked[0].score < 20) {
-    throw new Error("Street candidates were found, but none matched strongly enough.");
-  }
-
-  return featureToSettings(ranked[0].feature.attributes || {}, parsed);
-}
-
-async function searchAddressSuggestions(query) {
-  const parsed = parseAddressInput(query);
-  if (!parsed || !parsed.streetName) return [];
-
-  let features = await runCouncilQuery(buildStreetLikeWhere(parsed), 50);
-
-  if (!features.length) {
-    const street = cleanStreetName(parsed.streetName);
-    features = await runCouncilQuery(
-      `UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`,
-      50
-    );
+    throw new Error("No nearby bin collection address found for your location.");
   }
 
   const ranked = features
     .map(f => {
       const attrs = f.attributes || {};
+      const featureLat = Number(attrs.Latitude || lat);
+      const featureLon = Number(attrs.Longitude || lon);
+      const dist = distanceMeters(lat, lon, featureLat, featureLon);
       return {
         attrs,
-        score: scoreFeature(attrs, parsed)
+        dist
       };
     })
-    .filter(x => x.score >= 15)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => a.dist - b.dist);
 
-  const unique = [];
-  const seen = new Set();
-
-  for (const item of ranked) {
-    const key = `${item.attrs.Address}|${item.attrs.Locality}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(item.attrs);
-    if (unique.length >= 8) break;
-  }
-
-  return unique.map(attrs => ({
-    label: attrs.Address || `${attrs.Property_Number} ${attrs.Streetname}, ${attrs.Locality}`,
-    propertyNumber: String(attrs.Property_Number || ""),
-    streetName: attrs.Streetname || parsed.streetName,
-    locality: attrs.Locality || parsed.locality
-  }));
+  return featureToSettings(ranked[0].attrs, lat, lon);
 }
 
-function renderSuggestions(items) {
-  const box = document.getElementById("suggestions");
-  if (!box) return;
+function getCurrentPositionPromise() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Geolocation is not supported on this device."));
+      return;
+    }
 
-  box.innerHTML = "";
-
-  if (!items.length) {
-    box.hidden = true;
-    return;
-  }
-
-  for (const item of items) {
-    const div = document.createElement("div");
-    div.className = "suggestion";
-    div.textContent = item.label;
-    div.addEventListener("click", () => {
-      selectedSuggestion = item;
-      document.getElementById("addressSearch").value = item.label;
-      box.hidden = true;
-    });
-    box.appendChild(div);
-  }
-
-  box.hidden = false;
+    navigator.geolocation.getCurrentPosition(
+      resolve,
+      reject,
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000
+      }
+    );
+  });
 }
 
 function render(settings = loadSettings()) {
@@ -633,19 +477,12 @@ function render(settings = loadSettings()) {
       : "Schedule not configured yet.";
   }
 
-  const addressInput = document.getElementById("addressSearch");
-  if (addressInput) {
-    addressInput.value = settings.ready
-      ? (settings.formattedAddress || `${settings.propertyNumber} ${settings.streetName}, ${settings.locality}`)
-      : "";
-  }
-
   const lookupStatus = document.getElementById("lookupStatus");
   if (lookupStatus) {
     lookupStatus.className = "small";
     lookupStatus.innerHTML = settings.ready
       ? `Last lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
-      : `<span class="warn">Search for your street to configure the app.</span>`;
+      : `<span class="warn">Use current location to configure the app.</span>`;
   }
 
   const daysAwayEl = document.getElementById("daysAway");
@@ -772,74 +609,34 @@ function render(settings = loadSettings()) {
   }
 }
 
-function setupAddressSearch() {
-  const input = document.getElementById("addressSearch");
-  const form = document.getElementById("lookupForm");
+function setupLocationLookup() {
+  const btn = document.getElementById("useLocationBtn");
   const status = document.getElementById("lookupStatus");
 
-  if (!input || !form || !status) return;
+  if (!btn || !status) return;
 
-  input.addEventListener("input", () => {
-    selectedSuggestion = null;
-    const query = input.value.trim();
-    const token = ++activeSearchToken;
-
-    if (searchTimer) clearTimeout(searchTimer);
-
-    if (query.length < 3) {
-      renderSuggestions([]);
-      return;
-    }
-
-    searchTimer = setTimeout(async () => {
-      try {
-        const items = await searchAddressSuggestions(query);
-        if (token !== activeSearchToken) return;
-        renderSuggestions(items);
-      } catch (err) {
-        if (token !== activeSearchToken) return;
-        console.error(err);
-        renderSuggestions([]);
-      }
-    }, 300);
-  });
-
-  input.addEventListener("blur", () => {
-    setTimeout(() => {
-      const box = document.getElementById("suggestions");
-      if (box) box.hidden = true;
-    }, 150);
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
     status.className = "small";
-    status.innerHTML = `<span class="warn">Looking up council data…</span>`;
+    status.innerHTML = `<span class="warn">Getting your location…</span>`;
 
     try {
-      let chosen = selectedSuggestion;
+      const position = await getCurrentPositionPromise();
+      const lat = position.coords.latitude;
+      const lon = position.coords.longitude;
 
-      if (!chosen) {
-        const parsed = parseAddressInput(input.value);
-        if (!parsed || !parsed.streetName) {
-          throw new Error("Enter a street like: Solandra St, Nambour");
-        }
-        chosen = parsed;
-      }
+      status.innerHTML = `<span class="warn">Finding nearest bin collection address…</span>`;
 
-      const result = await fetchCouncilBinSchedule(
-        chosen.propertyNumber,
-        chosen.streetName,
-        chosen.locality
-      );
-
+      const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon);
       saveSettings(result);
-      status.innerHTML = `<span class="success">Lookup successful.</span>`;
+
+      status.innerHTML = `<span class="success">Location lookup successful.</span>`;
       render(result);
     } catch (err) {
       console.error(err);
-      status.innerHTML = `<span class="error">${htmlEscape(err.message || "Lookup failed.")}</span>`;
+      status.innerHTML = `<span class="error">${htmlEscape(err.message || "Location lookup failed.")}</span>`;
+    } finally {
+      btn.disabled = false;
     }
   });
 }
@@ -860,7 +657,6 @@ function setupUtilityButtons() {
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
       resetSettings();
-      selectedSuggestion = null;
       render(loadSettings());
     });
   }
@@ -869,7 +665,7 @@ function setupUtilityButtons() {
 window.addEventListener("DOMContentLoaded", async () => {
   setupInstallPrompt();
   setupNotificationButtons();
-  setupAddressSearch();
+  setupLocationLookup();
   setupUtilityButtons();
 
   render(loadSettings());
