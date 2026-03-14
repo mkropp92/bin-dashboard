@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV10";
+const STORAGE_KEY = "binDashboardSettingsV11";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -13,12 +13,12 @@ const SCC_LAYER_URL =
 const defaultSettings = {
   ready: false,
   source: "manual",
-  locality: "Nambour",
+  locality: "Sunshine Coast",
   dow: 1,
   weekGroup: 1,
   invertAlternateCycle: true,
-  latitude: -26.6269,
-  longitude: 152.9594,
+  latitude: -26.6500,
+  longitude: 153.0667,
   lastLookupAt: ""
 };
 
@@ -116,7 +116,7 @@ function isRecycleWeek(date, settings) {
 }
 
 function bannerText(settings) {
-  if (!settings.ready) return "Use current location to configure the dashboard.";
+  if (!settings.ready) return "Use current location anywhere in the Sunshine Coast region to configure the dashboard.";
 
   const now = new Date();
   const dowNow = now.getDay();
@@ -416,7 +416,7 @@ async function fetchCouncilBinScheduleByCurrentLocation(lat, lon) {
   let features = await runCouncilQueryByLocation(lat, lon);
 
   if (!features.length) {
-    throw new Error("No nearby bin collection suburb found for your location.");
+    throw new Error("No nearby Sunshine Coast bin collection area found for your location.");
   }
 
   const ranked = features
@@ -465,18 +465,19 @@ function render(settings = loadSettings()) {
   const setupLine = document.getElementById("setupLine");
   if (setupLine) {
     setupLine.innerHTML = settings.ready
-      ? `Suburb: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
+      ? `Region: <b>Sunshine Coast</b><br>
+         Area: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
          Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
          Alternate cycle: <b>Flipped</b>`
-      : "Schedule not configured yet.";
+      : "Schedule not configured yet for Sunshine Coast.";
   }
 
   const lookupStatus = document.getElementById("lookupStatus");
   if (lookupStatus) {
     lookupStatus.className = "small";
     lookupStatus.innerHTML = settings.ready
-      ? `Last lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
-      : `<span class="warn">Use current location to configure the app.</span>`;
+      ? `Last Sunshine Coast lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
+      : `<span class="warn">Use current location anywhere in the Sunshine Coast region.</span>`;
   }
 
   const daysAwayEl = document.getElementById("daysAway");
@@ -621,7 +622,7 @@ function setupLocationLookup() {
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
 
-      status.innerHTML = `<span class="warn">Finding nearby bin collection suburb…</span>`;
+      status.innerHTML = `<span class="warn">Finding nearby Sunshine Coast bin collection area…</span>`;
 
       const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon);
       saveSettings(result);
