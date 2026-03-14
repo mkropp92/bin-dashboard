@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV8";
+const STORAGE_KEY = "binDashboardSettingsV9";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -13,10 +13,7 @@ const SCC_LAYER_URL =
 const defaultSettings = {
   ready: false,
   source: "manual",
-  propertyNumber: "",
-  streetName: "",
   locality: "Nambour",
-  formattedAddress: "",
   dow: 1,
   weekGroup: 1,
   invertAlternateCycle: false,
@@ -31,7 +28,12 @@ function loadSettings() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return { ...defaultSettings };
   try {
-    return { ...defaultSettings, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaultSettings,
+      ...parsed,
+      locality: parsed.locality || defaultSettings.locality
+    };
   } catch {
     return { ...defaultSettings };
   }
@@ -359,7 +361,7 @@ async function runCouncilQueryByLocation(lat, lon) {
     geometryType: "esriGeometryPoint",
     inSR: "4326",
     spatialRel: "esriSpatialRelIntersects",
-    outFields: "Property_Number,Streetname,Locality,Address,Week,CollectionDay,Latitude,Longitude",
+    outFields: "Locality,Week,CollectionDay,Latitude,Longitude",
     returnGeometry: "false",
     f: "json",
     distance: "150",
@@ -405,10 +407,7 @@ function featureToSettings(attrs, currentLat, currentLon) {
   return {
     ready: true,
     source: "current-location",
-    propertyNumber: String(attrs.Property_Number || "").trim(),
-    streetName: normalizeWhitespace(attrs.Streetname || ""),
-    locality: normalizeWhitespace(attrs.Locality || ""),
-    formattedAddress: attrs.Address || `${attrs.Property_Number || ""} ${attrs.Streetname || ""}, ${attrs.Locality || ""}`.trim(),
+    locality: normalizeWhitespace(attrs.Locality || "Unknown"),
     dow,
     weekGroup: Number(attrs.Week || 1),
     invertAlternateCycle: false,
@@ -422,7 +421,7 @@ async function fetchCouncilBinScheduleByCurrentLocation(lat, lon) {
   let features = await runCouncilQueryByLocation(lat, lon);
 
   if (!features.length) {
-    throw new Error("No nearby bin collection address found for your location.");
+    throw new Error("No nearby bin collection suburb found for your location.");
   }
 
   const ranked = features
@@ -471,7 +470,7 @@ function render(settings = loadSettings()) {
   const setupLine = document.getElementById("setupLine");
   if (setupLine) {
     setupLine.innerHTML = settings.ready
-      ? `Address: <b>${htmlEscape(settings.formattedAddress || `${settings.propertyNumber} ${settings.streetName}, ${settings.locality}`)}</b><br>
+      ? `Suburb: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
          Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
          Alternate week group: <b>${htmlEscape(settings.weekGroup)}</b>${settings.invertAlternateCycle ? " (flipped)" : ""}`
       : "Schedule not configured yet.";
@@ -625,7 +624,7 @@ function setupLocationLookup() {
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
 
-      status.innerHTML = `<span class="warn">Finding nearest bin collection address…</span>`;
+      status.innerHTML = `<span class="warn">Finding nearby bin collection suburb…</span>`;
 
       const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon);
       saveSettings(result);
