@@ -80,6 +80,54 @@ function htmlEscape(s) {
     .replaceAll('"', "&quot;");
 }
 
+function normalizeWhitespace(s) {
+  return String(s || "").replace(/\s+/g, " ").trim();
+}
+
+function cleanLocality(locality) {
+  return normalizeWhitespace(locality)
+    .replaceAll("'", "''")
+    .toUpperCase();
+}
+
+function cleanStreetName(streetName) {
+  return normalizeWhitespace(streetName)
+    .toUpperCase()
+    .replace(/\bSTREET\b/g, "")
+    .replace(/\bST\b/g, "")
+    .replace(/\bROAD\b/g, "")
+    .replace(/\bRD\b/g, "")
+    .replace(/\bAVENUE\b/g, "")
+    .replace(/\bAVE\b/g, "")
+    .replace(/\bDRIVE\b/g, "")
+    .replace(/\bDR\b/g, "")
+    .replace(/\bCOURT\b/g, "")
+    .replace(/\bCT\b/g, "")
+    .replace(/\bPLACE\b/g, "")
+    .replace(/\bPL\b/g, "")
+    .replace(/\bLANE\b/g, "")
+    .replace(/\bLN\b/g, "")
+    .replace(/\bCRESCENT\b/g, "")
+    .replace(/\bCRES\b/g, "")
+    .replace(/\bPARADE\b/g, "")
+    .replace(/\bPDE\b/g, "")
+    .replace(/\bBOULEVARD\b/g, "")
+    .replace(/\bBLVD\b/g, "")
+    .replace(/\bTERRACE\b/g, "")
+    .replace(/\bTCE\b/g, "")
+    .replace(/\bWAY\b/g, "")
+    .replace(/\bCIRCUIT\b/g, "")
+    .replace(/\bCCT\b/g, "")
+    .replace(/\bCLOSE\b/g, "")
+    .replace(/\bCL\b/g, "")
+    .replace(/\bHIGHWAY\b/g, "")
+    .replace(/\bHWY\b/g, "")
+    .replace(/\bMOUNT\b/g, "MT")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replaceAll("'", "''");
+}
+
 function isCollectionDay(date, dow) {
   return date.getDay() === Number(dow);
 }
@@ -299,16 +347,28 @@ async function renderWeather(settings, nextDateIso) {
   }
 }
 
-function buildWhereClause(propertyNumber, streetName, locality) {
-  const street = String(streetName).trim().replaceAll("'", "''").toUpperCase();
-  const loc = String(locality).trim().replaceAll("'", "''").toUpperCase();
+function buildWhereExact(propertyNumber, streetName, locality) {
+  const street = cleanStreetName(streetName);
+  const loc = cleanLocality(locality);
   const num = Number(propertyNumber);
   return `Property_Number=${num} AND UPPER(Streetname)='${street}' AND UPPER(Locality)='${loc}'`;
 }
 
-async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
-  const where = buildWhereClause(propertyNumber, streetName, locality);
+function buildWherePrefix(propertyNumber, streetName, locality) {
+  const street = cleanStreetName(streetName);
+  const loc = cleanLocality(locality);
+  const num = Number(propertyNumber);
+  return `Property_Number=${num} AND UPPER(Streetname) LIKE '${street}%' AND UPPER(Locality)='${loc}'`;
+}
 
+function buildWhereContains(propertyNumber, streetName, locality) {
+  const street = cleanStreetName(streetName);
+  const loc = cleanLocality(locality);
+  const num = Number(propertyNumber);
+  return `Property_Number=${num} AND UPPER(Streetname) LIKE '%${street}%' AND UPPER(Locality)='${loc}'`;
+}
+
+async function runCouncilQuery(where) {
   const params = new URLSearchParams({
     where,
     outFields: "Property_Number,Streetname,Locality,Address,Week,CollectionDay,Latitude,Longitude",
@@ -324,12 +384,44 @@ async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
     throw new Error(data.error.message || "Council lookup error");
   }
 
-  const features = Array.isArray(data.features) ? data.features : [];
-  if (!features.length) {
-    throw new Error("No matching address found. Try house number, street name, and locality exactly.");
-  }
+  return Array.isArray(data.features) ? data.features : [];
+}
 
-  const attrs = features[0].attributes || {};
+function rankFeatures(features, propertyNumber, streetName, locality) {
+  const wantedStreet = cleanStreetName(streetName);
+  const wantedLoc = cleanLocality(locality);
+  const wantedNum = Number(propertyNumber);
+
+  return [...features].sort((a, b) => {
+    const aa = a.attributes || {};
+    const bb = b.attributes || {};
+
+    const aStreet = cleanStreetName(aa.Streetname || "");
+    const bStreet = cleanStreetName(bb.Streetname || "");
+    const aLoc = cleanLocality(aa.Locality || "");
+    const bLoc = cleanLocality(bb.Locality || "");
+    const aNum = Number(aa.Property_Number || 0);
+    const bNum = Number(bb.Property_Number || 0);
+
+    const aScore =
+      (aNum === wantedNum ? 100 : 0) +
+      (aLoc === wantedLoc ? 50 : 0) +
+      (aStreet === wantedStreet ? 40 : 0) +
+      (aStreet.startsWith(wantedStreet) ? 20 : 0) +
+      (aStreet.includes(wantedStreet) ? 10 : 0);
+
+    const bScore =
+      (bNum === wantedNum ? 100 : 0) +
+      (bLoc === wantedLoc ? 50 : 0) +
+      (bStreet === wantedStreet ? 40 : 0) +
+      (bStreet.startsWith(wantedStreet) ? 20 : 0) +
+      (bStreet.includes(wantedStreet) ? 10 : 0);
+
+    return bScore - aScore;
+  });
+}
+
+function featureToSettings(attrs, original) {
   const dow = getDowIndexFromName(attrs.CollectionDay);
   if (dow < 0) {
     throw new Error("Lookup succeeded but collection day was missing.");
@@ -338,10 +430,10 @@ async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
   return {
     ready: true,
     source: "scc-auto",
-    propertyNumber: String(propertyNumber).trim(),
-    streetName: String(streetName).trim(),
-    locality: String(locality).trim(),
-    formattedAddress: attrs.Address || `${propertyNumber} ${streetName}, ${locality}`,
+    propertyNumber: String(original.propertyNumber).trim(),
+    streetName: normalizeWhitespace(original.streetName),
+    locality: normalizeWhitespace(original.locality),
+    formattedAddress: attrs.Address || `${original.propertyNumber} ${original.streetName}, ${original.locality}`,
     dow,
     weekGroup: Number(attrs.Week || 1),
     invertAlternateCycle: false,
@@ -351,6 +443,44 @@ async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
     knownDate: "",
     knownType: "recycle"
   };
+}
+
+async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
+  const queries = [
+    { label: "exact", where: buildWhereExact(propertyNumber, streetName, locality) },
+    { label: "prefix", where: buildWherePrefix(propertyNumber, streetName, locality) },
+    { label: "contains", where: buildWhereContains(propertyNumber, streetName, locality) }
+  ];
+
+  let allMatches = [];
+  let lastError = null;
+
+  for (const q of queries) {
+    try {
+      const features = await runCouncilQuery(q.where);
+      if (features.length > 0) {
+        allMatches = rankFeatures(features, propertyNumber, streetName, locality);
+        break;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!allMatches.length) {
+    if (lastError) {
+      throw new Error(`Council lookup failed: ${lastError.message}`);
+    }
+
+    const cleanedStreet = cleanStreetName(streetName);
+    throw new Error(
+      `No matching address found. Try house number only, street name without road type, and locality exactly. Example street: "${cleanedStreet}".`
+    );
+  }
+
+  const chosen = allMatches[0];
+  const attrs = chosen.attributes || {};
+  return featureToSettings(attrs, { propertyNumber, streetName, locality });
 }
 
 function render(settings = loadSettings()) {
