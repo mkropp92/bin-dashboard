@@ -1,334 +1,385 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-
 <title>Sunshine Coast Bin Dashboard</title>
 
 <link rel="manifest" href="./app.webmanifest">
-<meta name="theme-color" content="#0d1729">
+<meta name="theme-color" content="#e9f2ff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 
 <style>
-
 :root{
---bg:#09111f;
---bg2:#0d1729;
---line:rgba(255,255,255,.08);
---text:#eef5ff;
---muted:#a8bbd3;
---red:#ef4444;
---yellow:#facc15;
---lime:#84cc16;
---blue:#49b6ff;
---green:#22c55e;
---shadow:0 12px 28px rgba(0,0,0,.28);
---radius:22px;
+  --bg:#f4f8fc;
+  --bg2:#eaf2fb;
+  --panel:#ffffff;
+  --panel2:#f8fbff;
+  --line:#dbe7f3;
+  --line2:#c8d9ea;
+  --text:#18324b;
+  --muted:#5f7a94;
+  --accent:#2f80ed;
+  --accent-soft:#e7f1ff;
+  --red:#d94b4b;
+  --red-soft:#fdeeee;
+  --yellow:#c59a00;
+  --yellow-soft:#fff7db;
+  --green:#4f9a36;
+  --green-soft:#eef8e8;
+  --blue-soft:#e9f2ff;
+  --shadow:0 6px 18px rgba(28, 61, 94, 0.08);
+  --radius:18px;
 }
 
 *{box-sizing:border-box}
 
 body{
-margin:0;
-font-family:Arial,Helvetica,sans-serif;
-color:var(--text);
-
-background:
-radial-gradient(circle at top right, rgba(73,182,255,.15), transparent 28%),
-radial-gradient(circle at top left, rgba(132,204,22,.10), transparent 20%),
-linear-gradient(180deg,var(--bg),var(--bg2));
+  margin:0;
+  font-family:Arial,Helvetica,sans-serif;
+  color:var(--text);
+  background:
+    linear-gradient(180deg,var(--bg),var(--bg2));
 }
 
 .wrap{
-max-width:1280px;
-margin:0 auto;
-padding:18px;
+  max-width:1200px;
+  margin:0 auto;
+  padding:10px;
 }
 
-.hero,.card{
-background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.03));
-border:1px solid var(--line);
-border-radius:28px;
-padding:22px;
-box-shadow:var(--shadow);
+.hero,
+.card{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+
+.hero{
+  padding:14px 16px 12px;
 }
 
 .hero-top{
-display:flex;
-justify-content:space-between;
-gap:16px;
-flex-wrap:wrap;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
 }
 
 .title{
-font-size:30px;
-font-weight:800;
-margin:0;
-}
-
-.subtitle{
-margin:8px 0 0;
-color:var(--muted);
-}
-
-.hero-meta{
-display:flex;
-gap:10px;
-flex-wrap:wrap;
-}
-
-.pill{
-padding:10px 14px;
-border-radius:999px;
-font-size:13px;
-font-weight:800;
-border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.04);
+  margin:0;
+  font-size:26px;
+  line-height:1.05;
+  font-weight:800;
+  color:#17324e;
 }
 
 .banner{
-margin-top:18px;
-padding:16px;
-border-radius:18px;
-border:1px solid rgba(73,182,255,.25);
-background:rgba(73,182,255,.10);
-font-weight:800;
+  margin-top:10px;
+  padding:14px 16px;
+  border-radius:16px;
+  border:1px solid #cfe1f5;
+  background:linear-gradient(180deg,#eff6ff,#e7f1ff);
+  color:#1f4f80;
+  font-weight:800;
+  font-size:16px;
 }
 
 .grid{
-display:grid;
-grid-template-columns:repeat(12,1fr);
-gap:16px;
-margin-top:16px;
+  display:grid;
+  grid-template-columns:repeat(12,1fr);
+  gap:10px;
+  margin-top:10px;
 }
 
 .card{
-grid-column:span 12;
+  grid-column:span 12;
+  padding:14px;
 }
 
-@media(min-width:900px){
-.span-3{grid-column:span 3}
-.span-4{grid-column:span 4}
-.span-5{grid-column:span 5}
-.span-8{grid-column:span 8}
+@media(min-width:960px){
+  .span-3{grid-column:span 3}
+  .span-4{grid-column:span 4}
+  .span-5{grid-column:span 5}
+  .span-8{grid-column:span 8}
+}
+
+h2,h3{
+  margin:0 0 10px;
+  color:#18324b;
+}
+
+.muted,
+.small{
+  color:var(--muted);
+  line-height:1.45;
+}
+
+.small{
+  font-size:13px;
 }
 
 .big-number{
-font-size:56px;
-font-weight:900;
+  font-size:46px;
+  line-height:1;
+  font-weight:900;
+  margin:0 0 6px;
+  color:#17324e;
 }
 
-.stack{
-display:flex;
-gap:10px;
-flex-wrap:wrap;
+.big-caption{
+  font-size:14px;
+  font-weight:700;
+  color:var(--muted);
+}
+
+.next-box{
+  display:grid;
+  gap:8px;
+}
+
+.stack,
+.btn-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
 }
 
 .chip{
-padding:8px 12px;
-border-radius:999px;
-font-size:12px;
-font-weight:900;
-border:1px solid rgba(255,255,255,.08);
+  display:inline-block;
+  padding:7px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  border:1px solid transparent;
 }
 
-.upcoming-list{
-display:grid;
-gap:10px;
+.bin-red{
+  background:var(--red-soft);
+  color:var(--red);
+  border-color:#f6d0d0;
 }
 
-.up-item{
-display:flex;
-justify-content:space-between;
-padding:12px;
-border-radius:16px;
-background:rgba(255,255,255,.03);
-border:1px solid rgba(255,255,255,.06);
+.bin-yellow{
+  background:var(--yellow-soft);
+  color:var(--yellow);
+  border-color:#f1df9a;
 }
 
-.calendar{
-display:grid;
-grid-template-columns:repeat(7,1fr);
-gap:8px;
+.bin-lime{
+  background:var(--green-soft);
+  color:var(--green);
+  border-color:#d7ebcb;
 }
 
-.day{
-min-height:100px;
-border-radius:14px;
-padding:8px;
-background:rgba(255,255,255,.03);
-border:1px solid rgba(255,255,255,.06);
+.bin-blue{
+  background:var(--blue-soft);
+  color:var(--accent);
+  border-color:#cfe1f5;
 }
 
-.today{
-outline:2px solid #49b6ff;
+.status-block{
+  display:grid;
+  gap:8px;
 }
 
-input,button{
-width:100%;
-padding:12px;
-border-radius:12px;
-border:1px solid rgba(255,255,255,.12);
-background:#0c1628;
-color:white;
-font-size:14px;
+.weather-box{
+  min-height:92px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#fbfdff;
 }
 
 button{
-background:#1ea8ff;
-border:none;
-font-weight:800;
-cursor:pointer;
+  width:100%;
+  padding:11px 12px;
+  border-radius:12px;
+  border:1px solid #cfe1f5;
+  background:#f6fbff;
+  color:#1f4f80;
+  font-size:14px;
+  font-weight:800;
+  cursor:pointer;
 }
 
-.suggestions{
-margin-top:10px;
-border-radius:12px;
-overflow:hidden;
-border:1px solid rgba(255,255,255,.08);
+button:hover{
+  background:#eef6ff;
 }
 
-.suggestion{
-padding:10px;
-cursor:pointer;
-border-top:1px solid rgba(255,255,255,.06);
+#useLocationBtn{
+  background:linear-gradient(180deg,#4da0ff,#2f80ed);
+  color:white;
+  border:none;
 }
 
-.suggestion:hover{
-background:rgba(73,182,255,.12);
+#useLocationBtn:hover{
+  background:linear-gradient(180deg,#4597f4,#2875df);
 }
 
+.upcoming-list{
+  display:grid;
+  gap:8px;
+}
+
+.up-item{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#fbfdff;
+  border:1px solid var(--line);
+}
+
+.up-title{
+  font-weight:800;
+  color:#18324b;
+}
+
+.up-sub{
+  margin-top:3px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.calendar-wrap{
+  overflow:auto;
+}
+
+.calendar{
+  display:grid;
+  grid-template-columns:repeat(7,minmax(92px,1fr));
+  gap:8px;
+  min-width:680px;
+}
+
+.dow{
+  text-align:center;
+  color:#6e88a0;
+  font-size:12px;
+  font-weight:800;
+  padding:4px 0;
+}
+
+.day{
+  min-height:92px;
+  border-radius:14px;
+  padding:8px;
+  background:#fbfdff;
+  border:1px solid var(--line);
+}
+
+.day.today{
+  outline:2px solid #8bbcff;
+  background:#f3f8ff;
+}
+
+.day.blank{
+  opacity:.38;
+}
+
+.num{
+  font-size:13px;
+  font-weight:800;
+  margin-bottom:6px;
+  color:#18324b;
+}
+
+.mini{
+  display:block;
+  width:100%;
+  text-align:center;
+  margin:4px 0;
+  padding:4px 6px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:900;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.success{color:#2f8a3b}
+.warn{color:#a77700}
+.error{color:#c43f3f}
 </style>
 </head>
 
 <body>
-
 <div class="wrap">
 
-<section class="hero">
+  <section class="hero">
+    <div class="hero-top">
+      <h1 class="title">Sunshine Coast Bin Dashboard</h1>
+    </div>
+    <div id="bannerText" class="banner">Loading…</div>
+  </section>
 
-<div class="hero-top">
+  <section class="grid">
 
-<div>
-<h1 class="title">Sunshine Coast Bin Dashboard</h1>
-<p class="subtitle">Automatic bin schedule lookup with weather and reminders</p>
+    <div class="card span-3">
+      <h3>Next collection</h3>
+      <div class="next-box">
+        <div class="big-number" id="daysAway">0</div>
+        <div class="big-caption">days away</div>
+        <div><b id="nextPretty">—</b></div>
+        <div class="stack">
+          <span class="chip bin-red">General Waste</span>
+          <span class="chip bin-blue" id="nextSecondary">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Status</h3>
+      <div class="status-block">
+        <div id="setupLine">Schedule not configured yet.</div>
+        <div id="lookupStatus" class="small"></div>
+      </div>
+    </div>
+
+    <div class="card span-5">
+      <h3>Weather</h3>
+      <div id="weatherBox" class="weather-box muted">Loading weather…</div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Current location</h3>
+      <div class="small" style="margin-bottom:10px;">
+        Use your device location to load your bin collection area.
+      </div>
+      <button id="useLocationBtn" type="button">Use current location</button>
+    </div>
+
+    <div class="card span-4">
+      <h3>App and notifications</h3>
+      <div class="btn-row">
+        <button id="enableNotifBtn" type="button">Enable notifications</button>
+        <button id="testNotifBtn" type="button">Test notification</button>
+        <button id="installBtn" type="button" hidden>Install app</button>
+        <button id="flipCycleBtn" type="button">Flip alternate cycle</button>
+        <button id="resetBtn" type="button">Reset</button>
+      </div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Upcoming</h3>
+      <div id="upcomingList" class="upcoming-list"></div>
+    </div>
+
+    <div class="card span-8">
+      <h3 id="monthTitle">Calendar</h3>
+      <div class="calendar-wrap">
+        <div id="calendar" class="calendar"></div>
+      </div>
+    </div>
+
+  </section>
 </div>
-
-<div class="hero-meta">
-<span class="pill">PWA</span>
-<span class="pill">General Waste</span>
-<span class="pill">Recycling</span>
-<span class="pill">Garden Organics</span>
-</div>
-
-</div>
-
-<div id="bannerText" class="banner">Loading...</div>
-
-</section>
-
-
-<section class="grid">
-
-<div class="card span-3">
-
-<h3>Next collection</h3>
-
-<div class="big-number" id="daysAway">0</div>
-
-<div id="nextPretty">Loading...</div>
-
-<div class="stack">
-
-<span class="chip">General</span>
-
-<span class="chip" id="nextSecondary">Loading</span>
-
-</div>
-
-</div>
-
-
-
-<div class="card span-4">
-
-<h3>Status</h3>
-
-<p id="setupLine">Schedule not configured.</p>
-
-<div id="lookupStatus"></div>
-
-</div>
-
-
-
-<div class="card span-5">
-
-<h3>Weather</h3>
-
-<div id="weatherBox">Loading weather...</div>
-
-</div>
-
-
-
-<div class="card span-4">
-
-  <h3>Current location</h3>
-
-  <div class="small" style="margin-bottom:12px">
-    Use your device location to find the nearest Sunshine Coast bin collection address.
-  </div>
-
-  <button id="useLocationBtn" type="button">Use current location</button>
-
-</div>
-
-
-<div class="card span-4">
-
-<h3>App and notifications</h3>
-
-<button id="enableNotifBtn">Enable notifications</button>
-
-<button id="testNotifBtn">Test notification</button>
-
-<button id="installBtn" hidden>Install app</button>
-
-<button id="flipCycleBtn">Flip alternate cycle</button>
-
-<button id="resetBtn">Reset</button>
-
-</div>
-
-
-
-<div class="card span-4">
-
-<h3>Upcoming collections</h3>
-
-<div id="upcomingList" class="upcoming-list"></div>
-
-</div>
-
-
-
-<div class="card span-8">
-
-<h3 id="monthTitle">Calendar</h3>
-
-<div id="calendar" class="calendar"></div>
-
-</div>
-
-</section>
-
-</div>
-
 
 <script src="./main.js"></script>
-
 </body>
 </html>
