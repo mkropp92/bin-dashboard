@@ -1,677 +1,437 @@
-const STORAGE_KEY = "binDashboardSettingsV22";
-const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV2";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sunshine Coast Region Bin Dashboard</title>
 
-const PUSH_BACKEND_URL = "https://bin-dashboard-1.onrender.com";
+<link rel="manifest" href="./app.webmanifest">
+<meta name="theme-color" content="#e9f2ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bin Dashboard">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="./icons/icon.svg">
 
-const DOW_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const MONTH_NAMES = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December"
-];
-
-const REGION_COORDS = {
-  "Sunshine Coast": { latitude: -26.6500, longitude: 153.0667 },
-  "Caloundra": { latitude: -26.8030, longitude: 153.1210 },
-  "Buderim": { latitude: -26.6850, longitude: 153.0570 },
-  "Maroochydore": { latitude: -26.6570, longitude: 153.0880 },
-  "Mooloolaba": { latitude: -26.6810, longitude: 153.1190 },
-  "Nambour": { latitude: -26.6280, longitude: 152.9590 },
-  "Coolum Beach": { latitude: -26.5280, longitude: 153.0880 },
-  "Peregian Beach": { latitude: -26.4820, longitude: 153.0960 },
-  "Noosa Heads": { latitude: -26.3940, longitude: 153.0900 },
-  "Noosaville": { latitude: -26.4010, longitude: 153.0660 },
-  "Yandina": { latitude: -26.5620, longitude: 152.9560 },
-  "Maleny": { latitude: -26.7590, longitude: 152.8510 }
-};
-
-const defaultSettings = {
-  ready: false,
-  source: "manual-setup",
-  locality: "Sunshine Coast",
-  dow: 1,
-  weekGroup: 1,
-  invertAlternateCycle: true,
-  latitude: REGION_COORDS["Sunshine Coast"].latitude,
-  longitude: REGION_COORDS["Sunshine Coast"].longitude,
-  notificationsEnabled: false,
-  lastLookupAt: ""
-};
-
-let deferredInstallPrompt = null;
-
-function loadSettings() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return { ...defaultSettings };
-  try {
-    return { ...defaultSettings, ...JSON.parse(raw) };
-  } catch {
-    return { ...defaultSettings };
-  }
+<style>
+:root{
+  --bg:#f4f8fc;
+  --bg2:#eaf2fb;
+  --panel:#ffffff;
+  --panel2:#f8fbff;
+  --line:#dbe7f3;
+  --text:#18324b;
+  --muted:#5f7a94;
+  --accent:#2f80ed;
+  --accent-soft:#e7f1ff;
+  --red:#d94b4b;
+  --red-soft:#fdeeee;
+  --yellow:#a77700;
+  --yellow-soft:#fff7db;
+  --green:#2f8a3b;
+  --green-soft:#eef8e8;
+  --blue:#2f80ed;
+  --blue-soft:#e9f2ff;
+  --shadow:0 6px 18px rgba(28,61,94,0.08);
+  --radius:18px;
 }
 
-function saveSettings(settings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  font-family:Arial,Helvetica,sans-serif;
+  color:var(--text);
+  background:linear-gradient(180deg,var(--bg),var(--bg2));
 }
 
-function resetSettings() {
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(WEATHER_CACHE_KEY);
+.wrap{
+  max-width:1200px;
+  margin:0 auto;
+  padding:10px;
 }
 
-function pad(n) {
-  return String(n).padStart(2, "0");
+.hero,
+.card{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
 }
 
-function toIso(date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+.hero{
+  padding:14px 16px 12px;
 }
 
-function atMidday(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+.title{
+  margin:0;
+  font-size:26px;
+  line-height:1.05;
+  font-weight:800;
+  color:#17324e;
 }
 
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+.banner{
+  margin-top:10px;
+  padding:14px 16px;
+  border-radius:16px;
+  border:1px solid #cfe1f5;
+  background:linear-gradient(180deg,#eff6ff,#e7f1ff);
+  color:#1f4f80;
+  font-weight:800;
+  font-size:16px;
 }
 
-function dayDiff(a, b) {
-  return Math.round((atMidday(a) - atMidday(b)) / 86400000);
+.grid{
+  display:grid;
+  grid-template-columns:repeat(12,1fr);
+  gap:10px;
+  margin-top:10px;
 }
 
-function htmlEscape(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+.card{
+  grid-column:span 12;
+  padding:14px;
 }
 
-function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+@media(min-width:960px){
+  .span-3{grid-column:span 3}
+  .span-4{grid-column:span 4}
+  .span-5{grid-column:span 5}
+  .span-8{grid-column:span 8}
 }
 
-function isStandalone() {
-  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+h3{
+  margin:0 0 10px;
+  color:#18324b;
 }
 
-function getIsoWeekNumber(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+.small{
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.45;
 }
 
-function currentWeekMatches(settings, date) {
-  const weekNo = getIsoWeekNumber(date);
-  const currentGroup = (weekNo % 2 === 0) ? 2 : 1;
-  return Number(settings.weekGroup) === currentGroup;
+.big-number{
+  font-size:46px;
+  line-height:1;
+  font-weight:900;
+  margin:0 0 6px;
+  color:#17324e;
 }
 
-function isRecycleWeek(date, settings) {
-  let recycle = currentWeekMatches(settings, date);
-  if (settings.invertAlternateCycle) recycle = !recycle;
-  return recycle;
+.big-caption{
+  font-size:14px;
+  font-weight:700;
+  color:var(--muted);
 }
 
-function secondaryChip(ev, ready) {
-  if (!ready) return { text: "Not set", cls: "bin-blue" };
-  if (ev.recycle) return { text: "Recycling", cls: "bin-yellow" };
-  if (ev.organics) return { text: "Garden Organics", cls: "bin-lime" };
-  return { text: "General Waste", cls: "bin-red" };
+.next-box{
+  display:grid;
+  gap:8px;
 }
 
-function bannerText(settings) {
-  if (!settings.ready) return "Set your collection day and week group to begin.";
-
-  const now = new Date();
-  const dowNow = now.getDay();
-  const hourNow = now.getHours();
-
-  let daysUntil = Number(settings.dow) - dowNow;
-  if (daysUntil < 0) daysUntil += 7;
-
-  if (daysUntil === 0) {
-    return hourNow < 12 ? "Bin day today." : "Bins collected today.";
-  }
-  if (daysUntil === 1 && hourNow >= 16) return "Put bins out tonight.";
-  if (daysUntil === 1) return "Bin day tomorrow.";
-  return `Next collection in ${daysUntil} days.`;
+.stack,
+.btn-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
 }
 
-function upcomingCollections(settings) {
-  const today = atMidday(new Date());
-  const out = [];
-
-  for (let i = 0; i < 160 && out.length < 14; i++) {
-    const d = addDays(today, i);
-    if (d.getDay() !== Number(settings.dow)) continue;
-
-    let recycle = false;
-    let organics = false;
-    if (settings.ready) {
-      recycle = isRecycleWeek(d, settings);
-      organics = !recycle;
-    }
-
-    out.push({
-      date: d,
-      iso: toIso(d),
-      pretty: `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`,
-      prettyShort: `${DOW_SHORT[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`,
-      recycle,
-      organics
-    });
-  }
-
-  return out;
+.chip{
+  display:inline-block;
+  padding:7px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  border:1px solid transparent;
 }
 
-function setLookupStatus(html, cls = "small") {
-  const el = document.getElementById("lookupStatus");
-  if (!el) return;
-  el.className = `lookup-panel ${cls}`;
-  el.innerHTML = html;
+.bin-red{
+  background:var(--red-soft);
+  color:var(--red);
+  border-color:#f6d0d0;
 }
 
-function hydrateSetupForm(settings) {
-  const localityInput = document.getElementById("localityInput");
-  const dowInput = document.getElementById("dowInput");
-  const weekGroupInput = document.getElementById("weekGroupInput");
-
-  if (localityInput) localityInput.value = settings.locality || "Sunshine Coast";
-  if (dowInput) dowInput.value = String(settings.dow ?? 1);
-  if (weekGroupInput) weekGroupInput.value = String(settings.weekGroup ?? 1);
+.bin-yellow{
+  background:var(--yellow-soft);
+  color:var(--yellow);
+  border-color:#f1df9a;
 }
 
-async function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  await navigator.serviceWorker.register("./sw.js");
+.bin-lime{
+  background:var(--green-soft);
+  color:var(--green);
+  border-color:#d7ebcb;
 }
 
-function setupInstallPrompt() {
-  const btn = document.getElementById("installBtn");
-  if (!btn) return;
-
-  if (isIOS()) {
-    btn.hidden = true;
-    return;
-  }
-
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    deferredInstallPrompt = e;
-    btn.hidden = false;
-  });
-
-  btn.addEventListener("click", async () => {
-    if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    btn.hidden = true;
-  });
+.bin-blue{
+  background:var(--blue-soft);
+  color:var(--accent);
+  border-color:#cfe1f5;
 }
 
-async function ensureNotificationsFromUserAction() {
-  if (!("Notification" in window)) return "unsupported";
-
-  if (Notification.permission === "granted") return "granted";
-
-  if (isIOS() && !isStandalone()) {
-    throw new Error("On iPhone or iPad, install this app to the Home Screen first, then open it from the app icon.");
-  }
-
-  if (Notification.permission === "denied") {
-    throw new Error("Notifications are blocked. Enable them in your browser or device settings.");
-  }
-
-  return await Notification.requestPermission();
+.status-panel,
+.lookup-panel,
+.weather-box,
+.config-panel{
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#fbfdff;
 }
 
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; i++) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-
-  return outputArray;
+.lookup-panel{
+  min-height:90px;
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
+.weather-box{
+  min-height:110px;
 }
 
-async function getVapidPublicKey() {
-  const res = await fetchWithTimeout(`${PUSH_BACKEND_URL}/vapid-public-key`, {}, 5000);
-  if (!res.ok) throw new Error("Failed to reach push server.");
-  const data = await res.json();
-  return data.publicKey;
+button,
+select{
+  width:100%;
+  padding:11px 12px;
+  border-radius:12px;
+  border:1px solid #cfe1f5;
+  background:#f6fbff;
+  color:#1f4f80;
+  font-size:14px;
+  font-weight:800;
 }
 
-async function subscribeForPush(settings) {
-  if (!("serviceWorker" in navigator)) throw new Error("Service worker not supported.");
-  if (!("PushManager" in window)) throw new Error("Push notifications not supported.");
-  if (!("Notification" in window)) throw new Error("Notifications not supported.");
-  if (Notification.permission !== "granted") throw new Error("Notifications not granted.");
-
-  const reg = await navigator.serviceWorker.ready;
-  const publicKey = await getVapidPublicKey();
-
-  let sub = await reg.pushManager.getSubscription();
-
-  if (!sub) {
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey)
-    });
-  }
-
-  const payload = {
-    subscription: sub.toJSON(),
-    locality: settings.locality,
-    dow: settings.dow,
-    weekGroup: settings.weekGroup,
-    invertAlternateCycle: settings.invertAlternateCycle
-  };
-
-  const saveRes = await fetchWithTimeout(`${PUSH_BACKEND_URL}/subscribe`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  }, 5000);
-
-  if (!saveRes.ok) throw new Error("Failed to save notification subscription.");
-
-  const welcomeRes = await fetchWithTimeout(`${PUSH_BACKEND_URL}/send-welcome`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subscription: sub.toJSON() })
-  }, 5000);
-
-  if (!welcomeRes.ok) throw new Error("Failed to send welcome notification.");
-
-  return true;
+button{
+  cursor:pointer;
 }
 
-function getWeatherCache() {
-  try {
-    return JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY) || "{}");
-  } catch {
-    return {};
-  }
+button:hover{
+  background:#eef6ff;
 }
 
-function setWeatherCache(cache) {
-  localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(cache));
+button:disabled{
+  opacity:.65;
+  cursor:not-allowed;
 }
 
-function getWeatherCacheKey(dateIso, lat, lon) {
-  return `${dateIso}|${Number(lat).toFixed(3)}|${Number(lon).toFixed(3)}`;
+.primary{
+  background:linear-gradient(180deg,#4da0ff,#2f80ed);
+  color:#fff;
+  border:none;
 }
 
-async function fetchWeatherForDate(targetDateIso, lat, lon) {
-  const cache = getWeatherCache();
-  const key = getWeatherCacheKey(targetDateIso, lat, lon);
-  const now = Date.now();
-
-  if (cache[key] && (now - cache[key].savedAt < 30 * 60 * 1000)) {
-    return cache[key].data;
-  }
-
-  const url =
-    `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${encodeURIComponent(lat)}` +
-    `&longitude=${encodeURIComponent(lon)}` +
-    `&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
-    `&timezone=Australia%2FSydney`;
-
-  const res = await fetchWithTimeout(url, {}, 8000);
-  if (!res.ok) throw new Error("Weather request failed");
-
-  const data = await res.json();
-  const idx = data.daily.time.indexOf(targetDateIso);
-  if (idx === -1) return null;
-
-  const result = {
-    date: targetDateIso,
-    tMax: data.daily.temperature_2m_max[idx],
-    tMin: data.daily.temperature_2m_min[idx],
-    rainChance: data.daily.precipitation_probability_max[idx],
-    code: data.daily.weathercode[idx]
-  };
-
-  cache[key] = {
-    savedAt: now,
-    data: result
-  };
-  setWeatherCache(cache);
-
-  return result;
+.primary:hover{
+  background:linear-gradient(180deg,#4597f4,#2875df);
 }
 
-function weatherLabel(code) {
-  if ([0].includes(code)) return "Clear";
-  if ([1, 2, 3].includes(code)) return "Partly cloudy";
-  if ([45, 48].includes(code)) return "Fog";
-  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
-  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain";
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return "Snow";
-  if ([95, 96, 99].includes(code)) return "Storm";
-  return "Forecast available";
+.form-grid{
+  display:grid;
+  gap:10px;
 }
 
-async function renderWeather(settings, nextDateIso) {
-  const box = document.getElementById("weatherBox");
-  if (!box) return;
-
-  box.textContent = "Loading weather…";
-
-  try {
-    const wx = await fetchWeatherForDate(nextDateIso, settings.latitude, settings.longitude);
-    if (!wx) {
-      box.textContent = "No forecast available yet.";
-      return;
-    }
-
-    box.innerHTML = `
-      <b>${htmlEscape(weatherLabel(wx.code))}</b><br>
-      ${htmlEscape(wx.date)}<br>
-      Max ${htmlEscape(wx.tMax)}°C / Min ${htmlEscape(wx.tMin)}°C<br>
-      Rain chance: ${htmlEscape(wx.rainChance)}%
-    `;
-  } catch {
-    box.textContent = "Weather unavailable.";
-  }
+.upcoming-list{
+  display:grid;
+  gap:8px;
 }
 
-function maybeSendBinReminder(nextCollectionDateIso) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-
-  const now = new Date();
-  const next = new Date(`${nextCollectionDateIso}T06:00:00`);
-  const reminder = new Date(next);
-  reminder.setDate(reminder.getDate() - 1);
-  reminder.setHours(18, 0, 0, 0);
-
-  const key = `bin-reminder-${nextCollectionDateIso}`;
-  if (localStorage.getItem(key)) return;
-
-  if (now >= reminder && now < next) {
-    localStorage.setItem(key, "1");
-  }
+.up-item{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#fbfdff;
+  border:1px solid var(--line);
 }
 
-function applySetup() {
-  const locality = document.getElementById("localityInput")?.value || "Sunshine Coast";
-  const dow = Number(document.getElementById("dowInput")?.value || 1);
-  const weekGroup = Number(document.getElementById("weekGroupInput")?.value || 1);
-  const coords = REGION_COORDS[locality] || REGION_COORDS["Sunshine Coast"];
-
-  const current = loadSettings();
-
-  const updated = {
-    ...current,
-    ready: true,
-    source: "manual-setup",
-    locality,
-    dow,
-    weekGroup,
-    invertAlternateCycle: true,
-    latitude: coords.latitude,
-    longitude: coords.longitude,
-    lastLookupAt: new Date().toISOString()
-  };
-
-  saveSettings(updated);
-  return updated;
+.up-title{
+  font-weight:800;
+  color:#18324b;
 }
 
-function render(settings = loadSettings()) {
-  const today = atMidday(new Date());
-  const upcoming = upcomingCollections(settings);
-  const next = upcoming[0] || null;
-
-  hydrateSetupForm(settings);
-
-  const banner = document.getElementById("bannerText");
-  if (banner) banner.textContent = bannerText(settings);
-
-  const setupLine = document.getElementById("setupLine");
-  if (setupLine) {
-    setupLine.innerHTML = settings.ready
-      ? `Region: <b>Sunshine Coast</b><br>
-         Area: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
-         Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
-         Week group: <b>${htmlEscape(settings.weekGroup)}</b><br>
-         Notifications: <b>${settings.notificationsEnabled ? "On" : "Off"}</b>`
-      : "Schedule not configured yet.";
-  }
-
-  if (settings.ready) {
-    setLookupStatus(
-      `Last saved setup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
-    );
-  } else {
-    setLookupStatus(`<span class="warn">Set your collection day and week group, then save.</span>`);
-  }
-
-  const daysAwayEl = document.getElementById("daysAway");
-  const nextPrettyEl = document.getElementById("nextPretty");
-  const nextSecondaryEl = document.getElementById("nextSecondary");
-  const weatherBox = document.getElementById("weatherBox");
-
-  if (next && settings.ready) {
-    const daysAway = Math.max(0, dayDiff(next.date, today));
-    const s = secondaryChip(next, settings.ready);
-
-    if (daysAwayEl) daysAwayEl.textContent = daysAway;
-    if (nextPrettyEl) nextPrettyEl.textContent = next.pretty;
-    if (nextSecondaryEl) {
-      nextSecondaryEl.textContent = s.text;
-      nextSecondaryEl.className = `chip ${s.cls}`;
-    }
-
-    setTimeout(() => {
-      renderWeather(settings, next.iso);
-      maybeSendBinReminder(next.iso);
-    }, 30);
-  } else {
-    if (daysAwayEl) daysAwayEl.textContent = "—";
-    if (nextPrettyEl) nextPrettyEl.textContent = "—";
-    if (nextSecondaryEl) {
-      nextSecondaryEl.textContent = "—";
-      nextSecondaryEl.className = "chip bin-blue";
-    }
-    if (weatherBox) weatherBox.textContent = "Configure setup first.";
-  }
-
-  const upcomingList = document.getElementById("upcomingList");
-  if (upcomingList) {
-    upcomingList.innerHTML = "";
-
-    if (settings.ready) {
-      upcoming.slice(0, 8).forEach(ev => {
-        const s = secondaryChip(ev, settings.ready);
-        const row = document.createElement("div");
-        row.className = "up-item";
-        row.innerHTML = `
-          <div>
-            <div class="up-title">${htmlEscape(ev.prettyShort)}</div>
-            <div class="up-sub">General Waste + ${htmlEscape(s.text)}</div>
-          </div>
-          <div>
-            <span class="chip bin-red">General</span>
-            <span class="chip ${htmlEscape(s.cls)}">${htmlEscape(s.text)}</span>
-          </div>
-        `;
-        upcomingList.appendChild(row);
-      });
-    }
-  }
-
-  const calendar = document.getElementById("calendar");
-  const title = document.getElementById("monthTitle");
-  if (calendar && title) {
-    calendar.innerHTML = "";
-
-    const map = {};
-    upcoming.forEach(ev => { map[ev.iso] = ev; });
-
-    const y = today.getFullYear();
-    const m = today.getMonth();
-    title.textContent = `${MONTH_NAMES[m]} ${y}`;
-
-    DOW_SHORT.forEach(d => {
-      const h = document.createElement("div");
-      h.className = "dow";
-      h.textContent = d;
-      calendar.appendChild(h);
-    });
-
-    const first = new Date(y, m, 1, 12, 0, 0);
-    const firstDow = first.getDay();
-    const lastDay = new Date(y, m + 1, 0).getDate();
-
-    for (let i = 0; i < firstDow; i++) {
-      const blank = document.createElement("div");
-      blank.className = "day blank";
-      calendar.appendChild(blank);
-    }
-
-    for (let d = 1; d <= lastDay; d++) {
-      const cell = document.createElement("div");
-      cell.className = "day";
-      const iso = `${y}-${pad(m + 1)}-${pad(d)}`;
-
-      if (iso === toIso(today)) cell.classList.add("today");
-
-      const num = document.createElement("div");
-      num.className = "num";
-      num.textContent = d;
-      cell.appendChild(num);
-
-      if (settings.ready) {
-        const ev = map[iso];
-        if (ev) {
-          const g = document.createElement("div");
-          g.className = "mini";
-          g.style.background = "#ef4444";
-          g.style.color = "#fff";
-          g.textContent = "General";
-          cell.appendChild(g);
-
-          const s = secondaryChip(ev, settings.ready);
-          const sec = document.createElement("div");
-          sec.className = "mini";
-
-          if (s.cls === "bin-yellow") {
-            sec.style.background = "#facc15";
-            sec.style.color = "#111827";
-          } else if (s.cls === "bin-lime") {
-            sec.style.background = "#84cc16";
-            sec.style.color = "#111827";
-          } else {
-            sec.style.background = "#49b6ff";
-            sec.style.color = "#08243b";
-          }
-
-          sec.textContent = s.text;
-          cell.appendChild(sec);
-        }
-      }
-
-      calendar.appendChild(cell);
-    }
-  }
+.up-sub{
+  margin-top:3px;
+  color:var(--muted);
+  font-size:13px;
 }
 
-function setupManualSetup() {
-  const saveBtn = document.getElementById("saveSetupBtn");
-  if (!saveBtn) return;
-
-  saveBtn.addEventListener("click", async () => {
-    saveBtn.disabled = true;
-    setLookupStatus(`<span class="info">Saving setup…</span>`);
-
-    let result;
-
-    try {
-      result = applySetup();
-
-      saveSettings(result);
-      render(result);
-
-      setLookupStatus(`<span class="success">Setup saved.</span>`);
-    } catch (err) {
-      setLookupStatus(`<span class="error">${htmlEscape(err.message || "Setup failed.")}</span>`);
-      saveBtn.disabled = false;
-      return;
-    }
-
-    (async () => {
-      try {
-        const permission = Notification.permission === "granted"
-          ? "granted"
-          : await ensureNotificationsFromUserAction();
-
-        if (permission === "granted") {
-          await subscribeForPush(result);
-          result.notificationsEnabled = true;
-          saveSettings(result);
-          render(result);
-          setLookupStatus(`<span class="success">Setup saved. Notifications are on.</span>`);
-        } else {
-          result.notificationsEnabled = Notification.permission === "granted";
-          saveSettings(result);
-          render(result);
-          setLookupStatus(`<span class="warn">Setup saved. Notifications are not enabled.</span>`);
-        }
-      } catch (err) {
-        console.error(err);
-        result.notificationsEnabled = false;
-        saveSettings(result);
-        render(result);
-        setLookupStatus(`<span class="warn">Setup saved, but notifications could not be enabled right now.</span>`);
-      } finally {
-        saveBtn.disabled = false;
-      }
-    })();
-  });
+.calendar-wrap{
+  overflow:auto;
 }
 
-function setupUtilityButtons() {
-  const resetBtn = document.getElementById("resetBtn");
-  if (!resetBtn) return;
-
-  resetBtn.addEventListener("click", () => {
-    resetSettings();
-    render(loadSettings());
-  });
+.calendar{
+  display:grid;
+  grid-template-columns:repeat(7,minmax(92px,1fr));
+  gap:8px;
+  min-width:680px;
 }
 
-window.addEventListener("DOMContentLoaded", async () => {
-  try {
-    await registerServiceWorker();
-  } catch {}
+.dow{
+  text-align:center;
+  color:#6e88a0;
+  font-size:12px;
+  font-weight:800;
+  padding:4px 0;
+}
 
-  setupInstallPrompt();
-  setupManualSetup();
-  setupUtilityButtons();
-  render(loadSettings());
-});
+.day{
+  min-height:92px;
+  border-radius:14px;
+  padding:8px;
+  background:#fbfdff;
+  border:1px solid var(--line);
+}
+
+.day.today{
+  outline:2px solid #8bbcff;
+  background:#f3f8ff;
+}
+
+.day.blank{
+  opacity:.38;
+}
+
+.num{
+  font-size:13px;
+  font-weight:800;
+  margin-bottom:6px;
+  color:#18324b;
+}
+
+.mini{
+  display:block;
+  width:100%;
+  text-align:center;
+  margin:4px 0;
+  padding:4px 6px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:900;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.success{color:#2f8a3b}
+.warn{color:#a77700}
+.error{color:#c43f3f}
+.info{color:#2f80ed}
+
+.inline-note{
+  margin-top:10px;
+}
+
+.muted-box{
+  margin-top:10px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.45;
+}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <section class="hero">
+    <h1 class="title">Sunshine Coast Region Bin Dashboard</h1>
+    <div id="bannerText" class="banner">Loading…</div>
+  </section>
+
+  <section class="grid">
+
+    <div class="card span-3">
+      <h3>Next collection</h3>
+      <div class="next-box">
+        <div class="big-number" id="daysAway">—</div>
+        <div class="big-caption">days away</div>
+        <div><b id="nextPretty">—</b></div>
+        <div class="stack">
+          <span class="chip bin-red">General Waste</span>
+          <span class="chip bin-blue" id="nextSecondary">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Status</h3>
+      <div id="setupLine" class="status-panel">Schedule not configured yet.</div>
+      <div id="lookupStatus" class="lookup-panel small inline-note">
+        Set your collection day and week group, then save.
+      </div>
+    </div>
+
+    <div class="card span-5">
+      <h3>Weather</h3>
+      <div id="weatherBox" class="weather-box small">Configure setup first.</div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Setup</h3>
+      <div class="config-panel">
+        <div class="form-grid">
+
+          <label class="small" for="localityInput">Area / suburb</label>
+          <select id="localityInput">
+            <option value="Sunshine Coast">Sunshine Coast</option>
+            <option value="Caloundra">Caloundra</option>
+            <option value="Buderim">Buderim</option>
+            <option value="Maroochydore">Maroochydore</option>
+            <option value="Mooloolaba">Mooloolaba</option>
+            <option value="Nambour">Nambour</option>
+            <option value="Coolum Beach">Coolum Beach</option>
+            <option value="Peregian Beach">Peregian Beach</option>
+            <option value="Noosa Heads">Noosa Heads</option>
+            <option value="Noosaville">Noosaville</option>
+            <option value="Yandina">Yandina</option>
+            <option value="Maleny">Maleny</option>
+          </select>
+
+          <label class="small" for="dowInput">Collection day</label>
+          <select id="dowInput">
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+          </select>
+
+          <label class="small" for="weekGroupInput">Alternate week group</label>
+          <select id="weekGroupInput">
+            <option value="1">Week Group 1</option>
+            <option value="2">Week Group 2</option>
+          </select>
+
+          <button id="saveSetupBtn" class="primary" type="button">Save setup</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card span-4">
+      <h3>App</h3>
+      <div class="btn-row">
+        <button id="installBtn" type="button" hidden>Install app</button>
+        <button id="resetBtn" type="button">Reset</button>
+      </div>
+      <div class="muted-box">
+        For notifications, use the installed app. On iPhone/iPad, install from Safari to the Home Screen. On Windows, install from your browser menu.
+      </div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Upcoming</h3>
+      <div id="upcomingList" class="upcoming-list"></div>
+    </div>
+
+    <div class="card span-8">
+      <h3 id="monthTitle">Calendar</h3>
+      <div class="calendar-wrap">
+        <div id="calendar" class="calendar"></div>
+      </div>
+    </div>
+
+  </section>
+</div>
+
+<script src="./main.js"></script>
+</body>
+</html>
