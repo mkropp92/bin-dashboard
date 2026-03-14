@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV5";
+const STORAGE_KEY = "binDashboardSettingsV6";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -277,18 +277,25 @@ async function showNotification(title, body) {
 }
 
 function setupNotificationButtons() {
-  document.getElementById("enableNotifBtn").addEventListener("click", async () => {
-    const permission = await requestNotifications();
-    alert(`Notification permission: ${permission}`);
-  });
+  const enableBtn = document.getElementById("enableNotifBtn");
+  const testBtn = document.getElementById("testNotifBtn");
 
-  document.getElementById("testNotifBtn").addEventListener("click", async () => {
-    if (Notification.permission !== "granted") {
+  if (enableBtn) {
+    enableBtn.addEventListener("click", async () => {
       const permission = await requestNotifications();
-      if (permission !== "granted") return;
-    }
-    await showNotification("Bin Dashboard", "Notifications are working.");
-  });
+      alert(`Notification permission: ${permission}`);
+    });
+  }
+
+  if (testBtn) {
+    testBtn.addEventListener("click", async () => {
+      if (Notification.permission !== "granted") {
+        const permission = await requestNotifications();
+        if (permission !== "granted") return;
+      }
+      await showNotification("Bin Dashboard", "Notifications are working.");
+    });
+  }
 }
 
 function maybeSendBinReminder(nextCollectionDateIso) {
@@ -489,11 +496,14 @@ function buildAddressLikeWhere(parsed) {
   const street = cleanStreetName(parsed.streetName).replaceAll("''", "'");
   const locality = cleanLocality(parsed.locality).replaceAll("''", "'");
 
-  const addressBits = [num, street, locality]
-    .filter(Boolean)
-    .map(s => s.replaceAll("'", "''"));
+  const bits = [num, street].filter(Boolean).map(s => s.replaceAll("'", "''"));
+  const clauses = bits.map(bit => `UPPER(Address) LIKE '%${bit}%'`);
 
-  return addressBits.map(bit => `UPPER(Address) LIKE '%${bit}%'`).join(" AND ");
+  if (locality) {
+    clauses.push(`UPPER(Locality) LIKE '%${locality.replaceAll("'", "''")}%'`);
+  }
+
+  return clauses.join(" AND ");
 }
 
 async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
@@ -507,13 +517,11 @@ async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
 
   if (!features.length) {
     const street = cleanStreetName(parsed.streetName);
-    const loc = cleanLocality(parsed.locality);
     const num = Number(parsed.propertyNumber);
 
     const fallbackWhere =
       `Property_Number=${num} AND ` +
-      `UPPER(Locality)='${loc}' AND ` +
-      `UPPER(Streetname) LIKE '%${street}%'`;
+      `UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`;
 
     features = await runCouncilQuery(fallbackWhere, 100);
   }
@@ -544,11 +552,10 @@ async function searchAddressSuggestions(query) {
 
   if (!features.length) {
     const street = cleanStreetName(parsed.streetName);
-    const loc = cleanLocality(parsed.locality);
     const num = Number(parsed.propertyNumber);
 
     features = await runCouncilQuery(
-      `Property_Number=${num} AND UPPER(Locality)='${loc}' AND UPPER(Streetname) LIKE '%${street}%'`,
+      `Property_Number=${num} AND UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`,
       50
     );
   }
@@ -614,44 +621,58 @@ function render(settings = loadSettings()) {
   const upcoming = upcomingCollections(settings);
   const next = upcoming[0] || null;
 
-  document.getElementById("bannerText").textContent = bannerText(settings);
+  const banner = document.getElementById("bannerText");
+  if (banner) banner.textContent = bannerText(settings);
 
-  document.getElementById("setupLine").innerHTML = settings.ready
-    ? `Address: <b>${htmlEscape(settings.formattedAddress || `${settings.propertyNumber} ${settings.streetName}, ${settings.locality}`)}</b><br>
-       Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
-       Alternate week group: <b>${htmlEscape(settings.weekGroup)}</b>${settings.invertAlternateCycle ? " (flipped)" : ""}`
-    : "Schedule not configured yet.";
+  const setupLine = document.getElementById("setupLine");
+  if (setupLine) {
+    setupLine.innerHTML = settings.ready
+      ? `Address: <b>${htmlEscape(settings.formattedAddress || `${settings.propertyNumber} ${settings.streetName}, ${settings.locality}`)}</b><br>
+         Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
+         Alternate week group: <b>${htmlEscape(settings.weekGroup)}</b>${settings.invertAlternateCycle ? " (flipped)" : ""}`
+      : "Schedule not configured yet.";
+  }
 
-  document.getElementById("addressSearch").value = settings.ready
-    ? (settings.formattedAddress || `${settings.propertyNumber} ${settings.streetName}, ${settings.locality}`)
-    : "";
+  const addressInput = document.getElementById("addressSearch");
+  if (addressInput) {
+    addressInput.value = settings.ready
+      ? (settings.formattedAddress || `${settings.propertyNumber} ${settings.streetName}, ${settings.locality}`)
+      : "";
+  }
 
   const lookupStatus = document.getElementById("lookupStatus");
-  lookupStatus.className = "small";
-  lookupStatus.innerHTML = settings.ready
-    ? `Last lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
-    : `<span class="warn">Search for your address to configure the app.</span>`;
+  if (lookupStatus) {
+    lookupStatus.className = "small";
+    lookupStatus.innerHTML = settings.ready
+      ? `Last lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
+      : `<span class="warn">Search for your address to configure the app.</span>`;
+  }
+
+  const daysAwayEl = document.getElementById("daysAway");
+  const nextPrettyEl = document.getElementById("nextPretty");
+  const nextSecondaryEl = document.getElementById("nextSecondary");
+  const weatherBox = document.getElementById("weatherBox");
 
   if (next) {
     const daysAway = Math.max(0, dayDiff(next.date, today));
     const s = secondaryChip(next, settings.ready);
 
-    document.getElementById("daysAway").textContent = daysAway;
-    document.getElementById("nextPretty").textContent = next.pretty;
-
-    const chip = document.getElementById("nextSecondary");
-    chip.textContent = s.text;
-    chip.className = `chip ${s.cls}`;
+    if (daysAwayEl) daysAwayEl.textContent = daysAway;
+    if (nextPrettyEl) nextPrettyEl.textContent = next.pretty;
+    if (nextSecondaryEl) {
+      nextSecondaryEl.textContent = s.text;
+      nextSecondaryEl.className = `chip ${s.cls}`;
+    }
 
     setTimeout(() => {
       renderWeather(settings, next.iso);
       maybeSendBinReminder(next.iso);
     }, 50);
   } else {
-    document.getElementById("daysAway").textContent = "—";
-    document.getElementById("nextPretty").textContent = "—";
-    document.getElementById("nextSecondary").textContent = "—";
-    document.getElementById("weatherBox").textContent = "Configure lookup first.";
+    if (daysAwayEl) daysAwayEl.textContent = "—";
+    if (nextPrettyEl) nextPrettyEl.textContent = "—";
+    if (nextSecondaryEl) nextSecondaryEl.textContent = "—";
+    if (weatherBox) weatherBox.textContent = "Configure lookup first.";
   }
 
   const upcomingList = document.getElementById("upcomingList");
@@ -802,7 +823,7 @@ function setupAddressSearch() {
       if (!chosen) {
         const parsed = parseAddressInput(input.value);
         if (!parsed) {
-          throw new Error("Enter an address like: 57 Solandra Dr, Nambour");
+          throw new Error("Enter an address like: 57 Solandra St, Nambour");
         }
         chosen = parsed;
       }
