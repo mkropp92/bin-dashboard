@@ -8,6 +8,9 @@
 <link rel="manifest" href="./app.webmanifest">
 <meta name="theme-color" content="#e9f2ff">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bin Dashboard">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="./icons/icon.svg">
 
 <style>
 :root{
@@ -16,7 +19,6 @@
   --panel:#ffffff;
   --panel2:#f8fbff;
   --line:#dbe7f3;
-  --line2:#c8d9ea;
   --text:#18324b;
   --muted:#5f7a94;
   --accent:#2f80ed;
@@ -38,8 +40,7 @@ body{
   margin:0;
   font-family:Arial,Helvetica,sans-serif;
   color:var(--text);
-  background:
-    linear-gradient(180deg,var(--bg),var(--bg2));
+  background:linear-gradient(180deg,var(--bg),var(--bg2));
 }
 
 .wrap{
@@ -355,13 +356,13 @@ button:hover{
     </div>
 
     <div class="card span-4">
-      <h3>App and notifications</h3>
+      <h3>App</h3>
       <div class="btn-row">
-        <button id="enableNotifBtn" type="button">Enable notifications</button>
-        <button id="testNotifBtn" type="button">Test notification</button>
         <button id="installBtn" type="button" hidden>Install app</button>
-        <button id="flipCycleBtn" type="button">Flip alternate cycle</button>
         <button id="resetBtn" type="button">Reset</button>
+      </div>
+      <div class="small" style="margin-top:10px;">
+        Notifications will be requested when you use current location.
       </div>
     </div>
 

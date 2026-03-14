@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV9";
+const STORAGE_KEY = "binDashboardSettingsV10";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -16,7 +16,7 @@ const defaultSettings = {
   locality: "Nambour",
   dow: 1,
   weekGroup: 1,
-  invertAlternateCycle: false,
+  invertAlternateCycle: true,
   latitude: -26.6269,
   longitude: 152.9594,
   lastLookupAt: ""
@@ -84,6 +84,11 @@ function htmlEscape(s) {
 
 function normalizeWhitespace(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
+}
+
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
 function isCollectionDay(date, dow) {
@@ -171,63 +176,53 @@ async function registerServiceWorker() {
 }
 
 function setupInstallPrompt() {
+  const btn = document.getElementById("installBtn");
+
+  if (isIOS()) {
+    if (btn) btn.hidden = true;
+    return;
+  }
+
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
-    const btn = document.getElementById("installBtn");
     if (btn) btn.hidden = false;
   });
 
-  const installBtn = document.getElementById("installBtn");
-  if (installBtn) {
-    installBtn.addEventListener("click", async () => {
+  if (btn) {
+    btn.addEventListener("click", async () => {
       if (!deferredInstallPrompt) return;
       deferredInstallPrompt.prompt();
       await deferredInstallPrompt.userChoice;
       deferredInstallPrompt = null;
-      installBtn.hidden = true;
+      btn.hidden = true;
     });
   }
 }
 
 async function requestNotifications() {
-  if (!("Notification" in window)) {
-    alert("Notifications are not supported in this browser.");
-    return "unsupported";
-  }
+  if (!("Notification" in window)) return "unsupported";
   return await Notification.requestPermission();
+}
+
+async function ensureNotificationsFromUserAction() {
+  if (!("Notification" in window)) return "unsupported";
+  if (Notification.permission === "granted") return "granted";
+  if (Notification.permission === "denied") return "denied";
+  return await requestNotifications();
 }
 
 async function showNotification(title, body) {
   if (!("serviceWorker" in navigator)) return;
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
   const reg = await navigator.serviceWorker.ready;
   await reg.showNotification(title, {
     body,
     icon: "./icons/icon.svg",
     badge: "./icons/icon.svg"
   });
-}
-
-function setupNotificationButtons() {
-  const enableBtn = document.getElementById("enableNotifBtn");
-  const testBtn = document.getElementById("testNotifBtn");
-
-  if (enableBtn) {
-    enableBtn.addEventListener("click", async () => {
-      const permission = await requestNotifications();
-      alert(`Notification permission: ${permission}`);
-    });
-  }
-
-  if (testBtn) {
-    testBtn.addEventListener("click", async () => {
-      if (Notification.permission !== "granted") {
-        const permission = await requestNotifications();
-        if (permission !== "granted") return;
-      }
-      await showNotification("Bin Dashboard", "Notifications are working.");
-    });
-  }
 }
 
 function maybeSendBinReminder(nextCollectionDateIso) {
@@ -410,7 +405,7 @@ function featureToSettings(attrs, currentLat, currentLon) {
     locality: normalizeWhitespace(attrs.Locality || "Unknown"),
     dow,
     weekGroup: Number(attrs.Week || 1),
-    invertAlternateCycle: false,
+    invertAlternateCycle: true,
     latitude: featureLat,
     longitude: featureLon,
     lastLookupAt: new Date().toISOString()
@@ -472,7 +467,7 @@ function render(settings = loadSettings()) {
     setupLine.innerHTML = settings.ready
       ? `Suburb: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
          Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
-         Alternate week group: <b>${htmlEscape(settings.weekGroup)}</b>${settings.invertAlternateCycle ? " (flipped)" : ""}`
+         Alternate cycle: <b>Flipped</b>`
       : "Schedule not configured yet.";
   }
 
@@ -620,6 +615,8 @@ function setupLocationLookup() {
     status.innerHTML = `<span class="warn">Getting your location…</span>`;
 
     try {
+      await ensureNotificationsFromUserAction();
+
       const position = await getCurrentPositionPromise();
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
@@ -641,17 +638,7 @@ function setupLocationLookup() {
 }
 
 function setupUtilityButtons() {
-  const flipBtn = document.getElementById("flipCycleBtn");
   const resetBtn = document.getElementById("resetBtn");
-
-  if (flipBtn) {
-    flipBtn.addEventListener("click", () => {
-      const settings = loadSettings();
-      settings.invertAlternateCycle = !settings.invertAlternateCycle;
-      saveSettings(settings);
-      render(settings);
-    });
-  }
 
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
@@ -663,7 +650,6 @@ function setupUtilityButtons() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   setupInstallPrompt();
-  setupNotificationButtons();
   setupLocationLookup();
   setupUtilityButtons();
 
