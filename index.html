@@ -22,12 +22,14 @@
   --text:#18324b;
   --muted:#5f7a94;
   --accent:#2f80ed;
+  --accent-soft:#e7f1ff;
   --red:#d94b4b;
   --red-soft:#fdeeee;
-  --yellow:#c59a00;
+  --yellow:#a77700;
   --yellow-soft:#fff7db;
-  --green:#4f9a36;
+  --green:#2f8a3b;
   --green-soft:#eef8e8;
+  --blue:#2f80ed;
   --blue-soft:#e9f2ff;
   --shadow:0 6px 18px rgba(28, 61, 94, 0.08);
   --radius:18px;
@@ -182,7 +184,22 @@ h2,h3{
 
 .status-block{
   display:grid;
-  gap:8px;
+  gap:10px;
+}
+
+.status-panel{
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#fbfdff;
+}
+
+.lookup-panel{
+  min-height:78px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#fbfdff;
 }
 
 .weather-box{
@@ -207,6 +224,11 @@ button{
 
 button:hover{
   background:#eef6ff;
+}
+
+button:disabled{
+  opacity:.65;
+  cursor:not-allowed;
 }
 
 #useLocationBtn{
@@ -305,6 +327,23 @@ button:hover{
 .success{color:#2f8a3b}
 .warn{color:#a77700}
 .error{color:#c43f3f}
+.info{color:#2f80ed}
+
+.spinner{
+  display:inline-block;
+  width:14px;
+  height:14px;
+  border:2px solid #bdd7f6;
+  border-top-color:#2f80ed;
+  border-radius:50%;
+  animation:spin .8s linear infinite;
+  vertical-align:-2px;
+  margin-right:8px;
+}
+
+@keyframes spin{
+  to{transform:rotate(360deg)}
+}
 </style>
 </head>
 
@@ -336,8 +375,10 @@ button:hover{
     <div class="card span-4">
       <h3>Status</h3>
       <div class="status-block">
-        <div id="setupLine">Schedule not configured yet.</div>
-        <div id="lookupStatus" class="small"></div>
+        <div id="setupLine" class="status-panel">Schedule not configured yet.</div>
+        <div id="lookupStatus" class="lookup-panel small">
+          <span class="warn">Use current location anywhere in the Sunshine Coast region.</span>
+        </div>
       </div>
     </div>
 
@@ -352,6 +393,9 @@ button:hover{
         Use your device location anywhere in the Sunshine Coast region to load your bin collection area.
       </div>
       <button id="useLocationBtn" type="button">Use current location</button>
+      <div class="small" style="margin-top:10px;">
+        On iPhone, open the installed Home Screen app for push notifications to work properly.
+      </div>
     </div>
 
     <div class="card span-4">
@@ -361,7 +405,7 @@ button:hover{
         <button id="resetBtn" type="button">Reset</button>
       </div>
       <div class="small" style="margin-top:10px;">
-        Notifications will be requested when you use current location.
+        Notifications are requested when you use current location.
       </div>
     </div>
 
