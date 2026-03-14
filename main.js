@@ -5,10 +5,12 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV12";
+const STORAGE_KEY = "binDashboardSettingsV13";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
+
+const PUSH_BACKEND_URL = "https://mkropp92.github.io/bin-dashboard/";
 
 const defaultSettings = {
   ready: false,
@@ -90,10 +92,6 @@ function normalizeWhitespace(s) {
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-}
-
-function isStandalone() {
-  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 
 function isCollectionDay(date, dow) {
@@ -229,13 +227,6 @@ async function showNotification(title, body) {
     badge: "./icons/icon.svg"
   });
   return true;
-}
-
-async function showWelcomeNotification() {
-  return await showNotification(
-    "Welcome",
-    "You will now start receiving notifications the night before collection"
-  );
 }
 
 function maybeSendBinReminder(nextCollectionDateIso) {
@@ -468,6 +459,69 @@ function getCurrentPositionPromise() {
   });
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function getVapidPublicKey() {
+  const res = await fetch(`${PUSH_BACKEND_URL}/vapid-public-key`);
+  if (!res.ok) throw new Error("Failed to get VAPID public key");
+  const data = await res.json();
+  return data.publicKey;
+}
+
+async function subscribeForPush(settings) {
+  if (!("serviceWorker" in navigator)) throw new Error("Service worker not supported");
+  if (!("PushManager" in window)) throw new Error("Push not supported");
+  if (!("Notification" in window)) throw new Error("Notifications not supported");
+  if (Notification.permission !== "granted") throw new Error("Notifications not granted");
+
+  const reg = await navigator.serviceWorker.ready;
+  const publicKey = await getVapidPublicKey();
+
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+  }
+
+  const payload = {
+    subscription: sub.toJSON(),
+    locality: settings.locality,
+    dow: settings.dow,
+    weekGroup: settings.weekGroup,
+    invertAlternateCycle: settings.invertAlternateCycle
+  };
+
+  const saveRes = await fetch(`${PUSH_BACKEND_URL}/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!saveRes.ok) throw new Error("Failed to save push subscription");
+
+  const welcomeRes = await fetch(`${PUSH_BACKEND_URL}/send-welcome`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription: sub.toJSON() })
+  });
+
+  if (!welcomeRes.ok) throw new Error("Failed to send welcome notification");
+
+  return true;
+}
+
 function render(settings = loadSettings()) {
   const today = atMidday(new Date());
   const upcoming = upcomingCollections(settings);
@@ -640,11 +694,18 @@ function setupLocationLookup() {
       status.innerHTML = `<span class="warn">Finding nearby Sunshine Coast bin collection area…</span>`;
 
       const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon, notificationsEnabled);
+
+      if (notificationsEnabled) {
+        await subscribeForPush(result);
+        result.notificationsEnabled = true;
+      } else {
+        result.notificationsEnabled = false;
+      }
+
       saveSettings(result);
       render(result);
 
       if (notificationsEnabled) {
-        await showWelcomeNotification();
         status.innerHTML = `<span class="success">Location lookup successful. Notifications are on.</span>`;
       } else {
         status.innerHTML = `<span class="warn">Location lookup successful. Notifications are not enabled.</span>`;
