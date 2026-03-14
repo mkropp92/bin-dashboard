@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV13";
+const STORAGE_KEY = "binDashboardSettingsV14";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -119,7 +119,9 @@ function isRecycleWeek(date, settings) {
 }
 
 function bannerText(settings) {
-  if (!settings.ready) return "Use current location anywhere in the Sunshine Coast region to configure the dashboard.";
+  if (!settings.ready) {
+    return "Use current location anywhere in the Sunshine Coast region to configure the dashboard.";
+  }
 
   const now = new Date();
   const dowNow = now.getDay();
@@ -247,7 +249,7 @@ function maybeSendBinReminder(nextCollectionDateIso) {
   }
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -294,7 +296,7 @@ async function fetchWeatherForDate(targetDateIso, lat, lon) {
     `&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
     `&timezone=Australia%2FSydney`;
 
-  const res = await fetchWithTimeout(url, {}, 5000);
+  const res = await fetchWithTimeout(url, {}, 8000);
   if (!res.ok) throw new Error("Weather request failed");
 
   const data = await res.json();
@@ -354,7 +356,7 @@ async function renderWeather(settings, nextDateIso) {
   }
 }
 
-async function runCouncilQueryByLocation(lat, lon) {
+async function runCouncilQueryByLocation(lat, lon, distance = 1500) {
   const params = new URLSearchParams({
     geometry: `${lon},${lat}`,
     geometryType: "esriGeometryPoint",
@@ -363,11 +365,12 @@ async function runCouncilQueryByLocation(lat, lon) {
     outFields: "Locality,Week,CollectionDay,Latitude,Longitude",
     returnGeometry: "false",
     f: "json",
-    distance: "150",
-    units: "esriSRUnit_Meter"
+    distance: String(distance),
+    units: "esriSRUnit_Meter",
+    resultRecordCount: "25"
   });
 
-  const res = await fetchWithTimeout(`${SCC_LAYER_URL}?${params.toString()}`, {}, 5000);
+  const res = await fetchWithTimeout(`${SCC_LAYER_URL}?${params.toString()}`, {}, 8000);
   if (!res.ok) throw new Error("Council location lookup failed");
 
   const data = await res.json();
@@ -418,7 +421,12 @@ function featureToSettings(attrs, currentLat, currentLon, notificationsEnabled) 
 }
 
 async function fetchCouncilBinScheduleByCurrentLocation(lat, lon, notificationsEnabled) {
-  let features = await runCouncilQueryByLocation(lat, lon);
+  let features = [];
+
+  for (const radius of [500, 1500, 5000, 15000]) {
+    features = await runCouncilQueryByLocation(lat, lon, radius);
+    if (features.length) break;
+  }
 
   if (!features.length) {
     throw new Error("No nearby Sunshine Coast bin collection area found for your location.");
@@ -712,7 +720,13 @@ function setupLocationLookup() {
       }
     } catch (err) {
       console.error(err);
-      status.innerHTML = `<span class="error">${htmlEscape(err.message || "Location lookup failed.")}</span>`;
+
+      let msg = err.message || "Location lookup failed.";
+      if (err.name === "AbortError") {
+        msg = "Sunshine Coast lookup timed out. Please try again.";
+      }
+
+      status.innerHTML = `<span class="error">${htmlEscape(msg)}</span>`;
     } finally {
       btn.disabled = false;
     }
