@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV6";
+const STORAGE_KEY = "binDashboardSettingsV7";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -133,23 +133,28 @@ function parseAddressInput(input) {
   const text = normalizeWhitespace(input);
   if (!text) return null;
 
-  const match = text.match(/^(\d+)\s+(.+)$/);
-  if (!match) return null;
-
-  let propertyNumber = match[1];
-  let rest = normalizeWhitespace(match[2]);
-
   let locality = "Nambour";
-  if (rest.includes(",")) {
-    const parts = rest.split(",");
-    rest = normalizeWhitespace(parts[0]);
+  let streetText = text;
+
+  if (text.includes(",")) {
+    const parts = text.split(",");
+    streetText = normalizeWhitespace(parts[0]);
     locality = normalizeWhitespace(parts.slice(1).join(" "));
     if (!locality) locality = "Nambour";
   }
 
+  const leadingNumber = streetText.match(/^(\d+)\s+(.+)$/);
+  if (leadingNumber) {
+    return {
+      propertyNumber: leadingNumber[1],
+      streetName: normalizeWhitespace(leadingNumber[2]),
+      locality
+    };
+  }
+
   return {
-    propertyNumber,
-    streetName: rest,
+    propertyNumber: "",
+    streetName: normalizeWhitespace(streetText),
     locality
   };
 }
@@ -179,7 +184,7 @@ function isRecycleWeek(date, settings) {
 }
 
 function bannerText(settings) {
-  if (!settings.ready) return "Search for your address to configure the dashboard.";
+  if (!settings.ready) return "Search for your street to configure the dashboard.";
 
   const now = new Date();
   const dowNow = now.getDay();
@@ -452,19 +457,19 @@ function scoreFeature(attrs, wanted) {
 
   const wantedStreet = cleanStreetName(wanted.streetName);
   const wantedLoc = cleanLocality(wanted.locality);
-  const wantedNum = String(wanted.propertyNumber).trim();
+  const wantedNum = String(wanted.propertyNumber || "").trim();
 
   let score = 0;
 
-  if (num === wantedNum) score += 100;
+  if (wantedNum && num === wantedNum) score += 100;
   if (loc === wantedLoc) score += 50;
   if (street === wantedStreet) score += 40;
   if (street.startsWith(wantedStreet)) score += 20;
   if (street.includes(wantedStreet)) score += 10;
 
-  if (address.includes(wantedNum.toUpperCase())) score += 10;
-  if (address.includes(wantedStreet.replaceAll("''", "'"))) score += 15;
-  if (address.includes(wantedLoc.replaceAll("''", "'"))) score += 10;
+  if (wantedNum && address.includes(wantedNum.toUpperCase())) score += 10;
+  if (wantedStreet && address.includes(wantedStreet.replaceAll("''", "'"))) score += 15;
+  if (wantedLoc && address.includes(wantedLoc.replaceAll("''", "'"))) score += 10;
 
   return score;
 }
@@ -478,10 +483,10 @@ function featureToSettings(attrs, original) {
   return {
     ready: true,
     source: "scc-auto",
-    propertyNumber: String(original.propertyNumber).trim(),
-    streetName: normalizeWhitespace(original.streetName),
-    locality: normalizeWhitespace(original.locality),
-    formattedAddress: attrs.Address || `${original.propertyNumber} ${original.streetName}, ${original.locality}`,
+    propertyNumber: String(original.propertyNumber || attrs.Property_Number || "").trim(),
+    streetName: normalizeWhitespace(original.streetName || attrs.Streetname || ""),
+    locality: normalizeWhitespace(original.locality || attrs.Locality || ""),
+    formattedAddress: attrs.Address || `${original.propertyNumber || ""} ${original.streetName || ""}, ${original.locality || ""}`.trim(),
     dow,
     weekGroup: Number(attrs.Week || 1),
     invertAlternateCycle: false,
@@ -491,14 +496,14 @@ function featureToSettings(attrs, original) {
   };
 }
 
-function buildAddressLikeWhere(parsed) {
-  const num = String(parsed.propertyNumber).trim();
+function buildStreetLikeWhere(parsed) {
   const street = cleanStreetName(parsed.streetName).replaceAll("''", "'");
   const locality = cleanLocality(parsed.locality).replaceAll("''", "'");
+  const clauses = [];
 
-  const bits = [num, street].filter(Boolean).map(s => s.replaceAll("'", "''"));
-  const clauses = bits.map(bit => `UPPER(Address) LIKE '%${bit}%'`);
-
+  if (street) {
+    clauses.push(`UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`);
+  }
   if (locality) {
     clauses.push(`UPPER(Locality) LIKE '%${locality.replaceAll("'", "''")}%'`);
   }
@@ -508,26 +513,23 @@ function buildAddressLikeWhere(parsed) {
 
 async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
   const parsed = {
-    propertyNumber: String(propertyNumber).trim(),
+    propertyNumber: String(propertyNumber || "").trim(),
     streetName: normalizeWhitespace(streetName),
     locality: normalizeWhitespace(locality || "Nambour")
   };
 
-  let features = await runCouncilQuery(buildAddressLikeWhere(parsed), 100);
+  let features = await runCouncilQuery(buildStreetLikeWhere(parsed), 100);
 
   if (!features.length) {
     const street = cleanStreetName(parsed.streetName);
-    const num = Number(parsed.propertyNumber);
-
-    const fallbackWhere =
-      `Property_Number=${num} AND ` +
-      `UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`;
-
-    features = await runCouncilQuery(fallbackWhere, 100);
+    features = await runCouncilQuery(
+      `UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`,
+      100
+    );
   }
 
   if (!features.length) {
-    throw new Error("No matching address found. Try house number, abbreviated street type, and locality.");
+    throw new Error("No matching street found. Try street name and locality.");
   }
 
   const ranked = [...features]
@@ -538,7 +540,7 @@ async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
     .sort((a, b) => b.score - a.score);
 
   if (!ranked.length || ranked[0].score < 20) {
-    throw new Error("Address candidates were found, but none matched strongly enough.");
+    throw new Error("Street candidates were found, but none matched strongly enough.");
   }
 
   return featureToSettings(ranked[0].feature.attributes || {}, parsed);
@@ -546,16 +548,14 @@ async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
 
 async function searchAddressSuggestions(query) {
   const parsed = parseAddressInput(query);
-  if (!parsed) return [];
+  if (!parsed || !parsed.streetName) return [];
 
-  let features = await runCouncilQuery(buildAddressLikeWhere(parsed), 50);
+  let features = await runCouncilQuery(buildStreetLikeWhere(parsed), 50);
 
   if (!features.length) {
     const street = cleanStreetName(parsed.streetName);
-    const num = Number(parsed.propertyNumber);
-
     features = await runCouncilQuery(
-      `Property_Number=${num} AND UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`,
+      `UPPER(Address) LIKE '%${street.replaceAll("'", "''")}%'`,
       50
     );
   }
@@ -584,7 +584,7 @@ async function searchAddressSuggestions(query) {
 
   return unique.map(attrs => ({
     label: attrs.Address || `${attrs.Property_Number} ${attrs.Streetname}, ${attrs.Locality}`,
-    propertyNumber: String(attrs.Property_Number || parsed.propertyNumber),
+    propertyNumber: String(attrs.Property_Number || ""),
     streetName: attrs.Streetname || parsed.streetName,
     locality: attrs.Locality || parsed.locality
   }));
@@ -645,7 +645,7 @@ function render(settings = loadSettings()) {
     lookupStatus.className = "small";
     lookupStatus.innerHTML = settings.ready
       ? `Last lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
-      : `<span class="warn">Search for your address to configure the app.</span>`;
+      : `<span class="warn">Search for your street to configure the app.</span>`;
   }
 
   const daysAwayEl = document.getElementById("daysAway");
@@ -786,7 +786,7 @@ function setupAddressSearch() {
 
     if (searchTimer) clearTimeout(searchTimer);
 
-    if (query.length < 4) {
+    if (query.length < 3) {
       renderSuggestions([]);
       return;
     }
@@ -822,8 +822,8 @@ function setupAddressSearch() {
 
       if (!chosen) {
         const parsed = parseAddressInput(input.value);
-        if (!parsed) {
-          throw new Error("Enter an address like: 57 Solandra St, Nambour");
+        if (!parsed || !parsed.streetName) {
+          throw new Error("Enter a street like: Solandra St, Nambour");
         }
         chosen = parsed;
       }
