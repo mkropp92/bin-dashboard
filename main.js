@@ -10,7 +10,7 @@ const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
 
-const PUSH_BACKEND_URL = "https://mkropp92.github.io/bin-dashboard/";
+const PUSH_BACKEND_URL = "https://sunshine-coast-bin-backend.onrender.com";
 
 const defaultSettings = {
   ready: false,
