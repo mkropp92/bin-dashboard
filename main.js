@@ -5,22 +5,34 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV14";
+const STORAGE_KEY = "binDashboardSettingsV15";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
-const SCC_LAYER_URL =
-  "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
-
 const PUSH_BACKEND_URL = "https://bin-dashboard-1.onrender.com";
+
+const REGION_COORDS = {
+  "Sunshine Coast": { latitude: -26.6500, longitude: 153.0667 },
+  "Caloundra": { latitude: -26.8030, longitude: 153.1210 },
+  "Buderim": { latitude: -26.6850, longitude: 153.0570 },
+  "Maroochydore": { latitude: -26.6570, longitude: 153.0880 },
+  "Mooloolaba": { latitude: -26.6810, longitude: 153.1190 },
+  "Nambour": { latitude: -26.6280, longitude: 152.9590 },
+  "Coolum Beach": { latitude: -26.5280, longitude: 153.0880 },
+  "Peregian Beach": { latitude: -26.4820, longitude: 153.0960 },
+  "Noosa Heads": { latitude: -26.3940, longitude: 153.0900 },
+  "Noosaville": { latitude: -26.4010, longitude: 153.0660 },
+  "Yandina": { latitude: -26.5620, longitude: 152.9560 },
+  "Maleny": { latitude: -26.7590, longitude: 152.8510 }
+};
 
 const defaultSettings = {
   ready: false,
-  source: "manual",
+  source: "manual-setup",
   locality: "Sunshine Coast",
   dow: 1,
   weekGroup: 1,
   invertAlternateCycle: true,
-  latitude: -26.6500,
-  longitude: 153.0667,
+  latitude: REGION_COORDS["Sunshine Coast"].latitude,
+  longitude: REGION_COORDS["Sunshine Coast"].longitude,
   lastLookupAt: "",
   notificationsEnabled: false
 };
@@ -31,12 +43,7 @@ function loadSettings() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return { ...defaultSettings };
   try {
-    const parsed = JSON.parse(raw);
-    return {
-      ...defaultSettings,
-      ...parsed,
-      locality: parsed.locality || defaultSettings.locality
-    };
+    return { ...defaultSettings, ...JSON.parse(raw) };
   } catch {
     return { ...defaultSettings };
   }
@@ -73,20 +80,12 @@ function dayDiff(a, b) {
   return Math.round((atMidday(a) - atMidday(b)) / 86400000);
 }
 
-function getDowIndexFromName(name) {
-  return DOW_NAMES.findIndex(d => d.toLowerCase() === String(name || "").toLowerCase());
-}
-
 function htmlEscape(s) {
   return String(s)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-}
-
-function normalizeWhitespace(s) {
-  return String(s || "").replace(/\s+/g, " ").trim();
 }
 
 function isIOS() {
@@ -119,9 +118,7 @@ function isRecycleWeek(date, settings) {
 }
 
 function bannerText(settings) {
-  if (!settings.ready) {
-    return "Use current location anywhere in the Sunshine Coast region to configure the dashboard.";
-  }
+  if (!settings.ready) return "Set your collection day and week group to configure the dashboard.";
 
   const now = new Date();
   const dowNow = now.getDay();
@@ -217,38 +214,6 @@ async function ensureNotificationsFromUserAction() {
   return await requestNotifications();
 }
 
-async function showNotification(title, body) {
-  if (!("serviceWorker" in navigator)) return false;
-  if (!("Notification" in window)) return false;
-  if (Notification.permission !== "granted") return false;
-
-  const reg = await navigator.serviceWorker.ready;
-  await reg.showNotification(title, {
-    body,
-    icon: "./icons/icon.svg",
-    badge: "./icons/icon.svg"
-  });
-  return true;
-}
-
-function maybeSendBinReminder(nextCollectionDateIso) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-
-  const now = new Date();
-  const next = new Date(`${nextCollectionDateIso}T06:00:00`);
-  const reminder = new Date(next);
-  reminder.setDate(reminder.getDate() - 1);
-  reminder.setHours(18, 0, 0, 0);
-
-  const key = `bin-reminder-${nextCollectionDateIso}`;
-  if (localStorage.getItem(key)) return;
-
-  if (now >= reminder && now < next) {
-    showNotification("Put bins out tonight", "Your next bin collection is tomorrow.");
-    localStorage.setItem(key, "1");
-  }
-}
-
 async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -262,209 +227,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function getWeatherCache() {
-  try {
-    return JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function setWeatherCache(cache) {
-  localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(cache));
-}
-
-function getWeatherCacheKey(dateIso, lat, lon) {
-  return `${dateIso}|${Number(lat).toFixed(4)}|${Number(lon).toFixed(4)}`;
-}
-
-async function fetchWeatherForDate(targetDateIso, lat, lon) {
-  const cache = getWeatherCache();
-  const key = getWeatherCacheKey(targetDateIso, lat, lon);
-  const now = Date.now();
-
-  if (cache[key] && (now - cache[key].savedAt < 30 * 60 * 1000)) {
-    return cache[key].data;
-  }
-
-  const url =
-    `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${encodeURIComponent(lat)}` +
-    `&longitude=${encodeURIComponent(lon)}` +
-    `&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
-    `&timezone=Australia%2FSydney`;
-
-  const res = await fetchWithTimeout(url, {}, 8000);
-  if (!res.ok) throw new Error("Weather request failed");
-
-  const data = await res.json();
-  const idx = data.daily.time.indexOf(targetDateIso);
-  if (idx === -1) return null;
-
-  const result = {
-    date: targetDateIso,
-    tMax: data.daily.temperature_2m_max[idx],
-    tMin: data.daily.temperature_2m_min[idx],
-    rainChance: data.daily.precipitation_probability_max[idx],
-    code: data.daily.weathercode[idx]
-  };
-
-  cache[key] = {
-    savedAt: now,
-    data: result
-  };
-  setWeatherCache(cache);
-
-  return result;
-}
-
-function weatherLabel(code) {
-  if ([0].includes(code)) return "Clear";
-  if ([1, 2, 3].includes(code)) return "Partly cloudy";
-  if ([45, 48].includes(code)) return "Fog";
-  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
-  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain";
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return "Snow";
-  if ([95, 96, 99].includes(code)) return "Storm";
-  return "Forecast available";
-}
-
-async function renderWeather(settings, nextDateIso) {
-  const box = document.getElementById("weatherBox");
-  if (!box) return;
-
-  box.textContent = "Loading weather…";
-
-  try {
-    const wx = await fetchWeatherForDate(nextDateIso, settings.latitude, settings.longitude);
-    if (!wx) {
-      box.textContent = "No forecast available for that date yet.";
-      return;
-    }
-
-    box.innerHTML = `
-      <b>${htmlEscape(weatherLabel(wx.code))}</b><br>
-      ${htmlEscape(wx.date)}<br>
-      Max ${htmlEscape(wx.tMax)}°C / Min ${htmlEscape(wx.tMin)}°C<br>
-      Rain chance: ${htmlEscape(wx.rainChance)}%
-    `;
-  } catch (err) {
-    box.textContent = "Weather unavailable.";
-    console.error(err);
-  }
-}
-
-async function runCouncilQueryByLocation(lat, lon, distance = 1500) {
-  const params = new URLSearchParams({
-    geometry: `${lon},${lat}`,
-    geometryType: "esriGeometryPoint",
-    inSR: "4326",
-    spatialRel: "esriSpatialRelIntersects",
-    outFields: "Locality,Week,CollectionDay,Latitude,Longitude",
-    returnGeometry: "false",
-    f: "json",
-    distance: String(distance),
-    units: "esriSRUnit_Meter",
-    resultRecordCount: "25"
-  });
-
-  const res = await fetchWithTimeout(`${SCC_LAYER_URL}?${params.toString()}`, {}, 8000);
-  if (!res.ok) throw new Error("Council location lookup failed");
-
-  const data = await res.json();
-  if (data.error) {
-    throw new Error(data.error.message || "Council location lookup error");
-  }
-
-  return Array.isArray(data.features) ? data.features : [];
-}
-
-function distanceMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (v) => v * Math.PI / 180;
-
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function featureToSettings(attrs, currentLat, currentLon, notificationsEnabled) {
-  const dow = getDowIndexFromName(attrs.CollectionDay);
-  if (dow < 0) {
-    throw new Error("Lookup succeeded but collection day was missing.");
-  }
-
-  const featureLat = Number(attrs.Latitude || currentLat);
-  const featureLon = Number(attrs.Longitude || currentLon);
-
-  return {
-    ready: true,
-    source: "current-location",
-    locality: normalizeWhitespace(attrs.Locality || "Unknown"),
-    dow,
-    weekGroup: Number(attrs.Week || 1),
-    invertAlternateCycle: true,
-    latitude: featureLat,
-    longitude: featureLon,
-    lastLookupAt: new Date().toISOString(),
-    notificationsEnabled: !!notificationsEnabled
-  };
-}
-
-async function fetchCouncilBinScheduleByCurrentLocation(lat, lon, notificationsEnabled) {
-  let features = [];
-
-  for (const radius of [500, 1500, 5000, 15000]) {
-    features = await runCouncilQueryByLocation(lat, lon, radius);
-    if (features.length) break;
-  }
-
-  if (!features.length) {
-    throw new Error("No nearby Sunshine Coast bin collection area found for your location.");
-  }
-
-  const ranked = features
-    .map(f => {
-      const attrs = f.attributes || {};
-      const featureLat = Number(attrs.Latitude || lat);
-      const featureLon = Number(attrs.Longitude || lon);
-      const dist = distanceMeters(lat, lon, featureLat, featureLon);
-      return {
-        attrs,
-        dist
-      };
-    })
-    .sort((a, b) => a.dist - b.dist);
-
-  return featureToSettings(ranked[0].attrs, lat, lon, notificationsEnabled);
-}
-
-function getCurrentPositionPromise() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("Geolocation is not supported on this device."));
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      resolve,
-      reject,
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000
-      }
-    );
-  });
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -530,10 +292,152 @@ async function subscribeForPush(settings) {
   return true;
 }
 
+function getWeatherCache() {
+  try {
+    return JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function setWeatherCache(cache) {
+  localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(cache));
+}
+
+function getWeatherCacheKey(dateIso, lat, lon) {
+  return `${dateIso}|${Number(lat).toFixed(4)}|${Number(lon).toFixed(4)}`;
+}
+
+async function fetchWeatherForDate(targetDateIso, lat, lon) {
+  const cache = getWeatherCache();
+  const key = getWeatherCacheKey(targetDateIso, lat, lon);
+  const now = Date.now();
+
+  if (cache[key] && (now - cache[key].savedAt < 30 * 60 * 1000)) {
+    return cache[key].data;
+  }
+
+  const url =
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${encodeURIComponent(lat)}` +
+    `&longitude=${encodeURIComponent(lon)}` +
+    `&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+    `&timezone=Australia%2FSydney`;
+
+  const res = await fetchWithTimeout(url, {}, 8000);
+  if (!res.ok) throw new Error("Weather request failed");
+
+  const data = await res.json();
+  const idx = data.daily.time.indexOf(targetDateIso);
+  if (idx === -1) return null;
+
+  const result = {
+    date: targetDateIso,
+    tMax: data.daily.temperature_2m_max[idx],
+    tMin: data.daily.temperature_2m_min[idx],
+    rainChance: data.daily.precipitation_probability_max[idx],
+    code: data.daily.weathercode[idx]
+  };
+
+  cache[key] = { savedAt: now, data: result };
+  setWeatherCache(cache);
+
+  return result;
+}
+
+function weatherLabel(code) {
+  if ([0].includes(code)) return "Clear";
+  if ([1, 2, 3].includes(code)) return "Partly cloudy";
+  if ([45, 48].includes(code)) return "Fog";
+  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain";
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return "Snow";
+  if ([95, 96, 99].includes(code)) return "Storm";
+  return "Forecast available";
+}
+
+async function renderWeather(settings, nextDateIso) {
+  const box = document.getElementById("weatherBox");
+  if (!box) return;
+
+  box.textContent = "Loading weather…";
+
+  try {
+    const wx = await fetchWeatherForDate(nextDateIso, settings.latitude, settings.longitude);
+    if (!wx) {
+      box.textContent = "No forecast available for that date yet.";
+      return;
+    }
+
+    box.innerHTML = `
+      <b>${htmlEscape(weatherLabel(wx.code))}</b><br>
+      ${htmlEscape(wx.date)}<br>
+      Max ${htmlEscape(wx.tMax)}°C / Min ${htmlEscape(wx.tMin)}°C<br>
+      Rain chance: ${htmlEscape(wx.rainChance)}%
+    `;
+  } catch (err) {
+    box.textContent = "Weather unavailable.";
+  }
+}
+
+function maybeSendBinReminder(nextCollectionDateIso) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const now = new Date();
+  const next = new Date(`${nextCollectionDateIso}T06:00:00`);
+  const reminder = new Date(next);
+  reminder.setDate(reminder.getDate() - 1);
+  reminder.setHours(18, 0, 0, 0);
+
+  const key = `bin-reminder-${nextCollectionDateIso}`;
+  if (localStorage.getItem(key)) return;
+
+  if (now >= reminder && now < next) {
+    localStorage.setItem(key, "1");
+  }
+}
+
+function applySetup() {
+  const locality = document.getElementById("localityInput").value;
+  const dow = Number(document.getElementById("dowInput").value);
+  const weekGroup = Number(document.getElementById("weekGroupInput").value);
+  const coords = REGION_COORDS[locality] || REGION_COORDS["Sunshine Coast"];
+
+  const current = loadSettings();
+  const updated = {
+    ...current,
+    ready: true,
+    source: "manual-setup",
+    locality,
+    dow,
+    weekGroup,
+    invertAlternateCycle: true,
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+    lastLookupAt: new Date().toISOString()
+  };
+
+  saveSettings(updated);
+  render(updated);
+  return updated;
+}
+
+function hydrateSetupForm(settings) {
+  const localityInput = document.getElementById("localityInput");
+  const dowInput = document.getElementById("dowInput");
+  const weekGroupInput = document.getElementById("weekGroupInput");
+
+  if (localityInput) localityInput.value = settings.locality || "Sunshine Coast";
+  if (dowInput) dowInput.value = String(settings.dow || 1);
+  if (weekGroupInput) weekGroupInput.value = String(settings.weekGroup || 1);
+}
+
 function render(settings = loadSettings()) {
   const today = atMidday(new Date());
   const upcoming = upcomingCollections(settings);
   const next = upcoming[0] || null;
+
+  hydrateSetupForm(settings);
 
   const banner = document.getElementById("bannerText");
   if (banner) banner.textContent = bannerText(settings);
@@ -544,16 +448,16 @@ function render(settings = loadSettings()) {
       ? `Region: <b>Sunshine Coast</b><br>
          Area: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
          Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
+         Week group: <b>${htmlEscape(settings.weekGroup)}</b><br>
          Notifications: <b>${settings.notificationsEnabled ? "On" : "Off"}</b>`
       : "Schedule not configured yet for Sunshine Coast.";
   }
 
   const lookupStatus = document.getElementById("lookupStatus");
   if (lookupStatus) {
-    lookupStatus.className = "small";
     lookupStatus.innerHTML = settings.ready
-      ? `Last Sunshine Coast lookup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
-      : `<span class="warn">Use current location anywhere in the Sunshine Coast region.</span>`;
+      ? `Last saved setup: <span class="success">${htmlEscape(new Date(settings.lastLookupAt || Date.now()).toLocaleString())}</span>`
+      : `<span class="warn">Set your collection day and week group, then save.</span>`;
   }
 
   const daysAwayEl = document.getElementById("daysAway");
@@ -561,7 +465,7 @@ function render(settings = loadSettings()) {
   const nextSecondaryEl = document.getElementById("nextSecondary");
   const weatherBox = document.getElementById("weatherBox");
 
-  if (next) {
+  if (next && settings.ready) {
     const daysAway = Math.max(0, dayDiff(next.date, today));
     const s = secondaryChip(next, settings.ready);
 
@@ -579,29 +483,34 @@ function render(settings = loadSettings()) {
   } else {
     if (daysAwayEl) daysAwayEl.textContent = "—";
     if (nextPrettyEl) nextPrettyEl.textContent = "—";
-    if (nextSecondaryEl) nextSecondaryEl.textContent = "—";
-    if (weatherBox) weatherBox.textContent = "Configure lookup first.";
+    if (nextSecondaryEl) {
+      nextSecondaryEl.textContent = "—";
+      nextSecondaryEl.className = "chip bin-blue";
+    }
+    if (weatherBox) weatherBox.textContent = "Configure setup first.";
   }
 
   const upcomingList = document.getElementById("upcomingList");
   if (upcomingList) {
     upcomingList.innerHTML = "";
-    upcoming.slice(0, 8).forEach(ev => {
-      const s = secondaryChip(ev, settings.ready);
-      const row = document.createElement("div");
-      row.className = "up-item";
-      row.innerHTML = `
-        <div>
-          <div class="up-title">${htmlEscape(ev.prettyShort)}</div>
-          <div class="up-sub">General Waste + ${htmlEscape(s.text)}</div>
-        </div>
-        <div>
-          <span class="chip bin-red">General</span>
-          <span class="chip ${htmlEscape(s.cls)}">${htmlEscape(s.text)}</span>
-        </div>
-      `;
-      upcomingList.appendChild(row);
-    });
+    if (settings.ready) {
+      upcoming.slice(0, 8).forEach(ev => {
+        const s = secondaryChip(ev, settings.ready);
+        const row = document.createElement("div");
+        row.className = "up-item";
+        row.innerHTML = `
+          <div>
+            <div class="up-title">${htmlEscape(ev.prettyShort)}</div>
+            <div class="up-sub">General Waste + ${htmlEscape(s.text)}</div>
+          </div>
+          <div>
+            <span class="chip bin-red">General</span>
+            <span class="chip ${htmlEscape(s.cls)}">${htmlEscape(s.text)}</span>
+          </div>
+        `;
+        upcomingList.appendChild(row);
+      });
+    }
   }
 
   const calendar = document.getElementById("calendar");
@@ -610,9 +519,7 @@ function render(settings = loadSettings()) {
     calendar.innerHTML = "";
 
     const map = {};
-    upcoming.forEach(ev => {
-      map[ev.iso] = ev;
-    });
+    upcoming.forEach(ev => { map[ev.iso] = ev; });
 
     const y = today.getFullYear();
     const m = today.getMonth();
@@ -647,32 +554,34 @@ function render(settings = loadSettings()) {
       num.textContent = d;
       cell.appendChild(num);
 
-      const ev = map[iso];
-      if (ev) {
-        const g = document.createElement("div");
-        g.className = "mini";
-        g.style.background = "#ef4444";
-        g.style.color = "#fff";
-        g.textContent = "General";
-        cell.appendChild(g);
+      if (settings.ready) {
+        const ev = map[iso];
+        if (ev) {
+          const g = document.createElement("div");
+          g.className = "mini";
+          g.style.background = "#ef4444";
+          g.style.color = "#fff";
+          g.textContent = "General";
+          cell.appendChild(g);
 
-        const s = secondaryChip(ev, settings.ready);
-        const sec = document.createElement("div");
-        sec.className = "mini";
+          const s = secondaryChip(ev, settings.ready);
+          const sec = document.createElement("div");
+          sec.className = "mini";
 
-        if (s.cls === "bin-yellow") {
-          sec.style.background = "#facc15";
-          sec.style.color = "#111827";
-        } else if (s.cls === "bin-lime") {
-          sec.style.background = "#84cc16";
-          sec.style.color = "#111827";
-        } else {
-          sec.style.background = "#49b6ff";
-          sec.style.color = "#08243b";
+          if (s.cls === "bin-yellow") {
+            sec.style.background = "#facc15";
+            sec.style.color = "#111827";
+          } else if (s.cls === "bin-lime") {
+            sec.style.background = "#84cc16";
+            sec.style.color = "#111827";
+          } else {
+            sec.style.background = "#49b6ff";
+            sec.style.color = "#08243b";
+          }
+
+          sec.textContent = s.text;
+          cell.appendChild(sec);
         }
-
-        sec.textContent = s.text;
-        cell.appendChild(sec);
       }
 
       calendar.appendChild(cell);
@@ -680,55 +589,36 @@ function render(settings = loadSettings()) {
   }
 }
 
-function setupLocationLookup() {
-  const btn = document.getElementById("useLocationBtn");
+function setupManualSetup() {
+  const saveBtn = document.getElementById("saveSetupBtn");
   const status = document.getElementById("lookupStatus");
+  if (!saveBtn || !status) return;
 
-  if (!btn || !status) return;
-
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    status.className = "small";
-    status.innerHTML = `<span class="warn">Getting your location…</span>`;
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    status.innerHTML = `<span class="warn">Saving setup…</span>`;
 
     try {
+      const result = applySetup();
+
       const permission = await ensureNotificationsFromUserAction();
       const notificationsEnabled = permission === "granted";
-
-      const position = await getCurrentPositionPromise();
-      const lat = position.coords.latitude;
-      const lon = position.coords.longitude;
-
-      status.innerHTML = `<span class="warn">Finding nearby Sunshine Coast bin collection area…</span>`;
-
-      const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon, notificationsEnabled);
 
       if (notificationsEnabled) {
         await subscribeForPush(result);
         result.notificationsEnabled = true;
-      } else {
-        result.notificationsEnabled = false;
+        saveSettings(result);
       }
 
-      saveSettings(result);
       render(result);
 
-      if (notificationsEnabled) {
-        status.innerHTML = `<span class="success">Location lookup successful. Notifications are on.</span>`;
-      } else {
-        status.innerHTML = `<span class="warn">Location lookup successful. Notifications are not enabled.</span>`;
-      }
+      status.innerHTML = notificationsEnabled
+        ? `<span class="success">Setup saved. Notifications are on.</span>`
+        : `<span class="success">Setup saved.</span>`;
     } catch (err) {
-      console.error(err);
-
-      let msg = err.message || "Location lookup failed.";
-      if (err.name === "AbortError") {
-        msg = "Sunshine Coast lookup timed out. Please try again.";
-      }
-
-      status.innerHTML = `<span class="error">${htmlEscape(msg)}</span>`;
+      status.innerHTML = `<span class="error">${htmlEscape(err.message || "Setup failed.")}</span>`;
     } finally {
-      btn.disabled = false;
+      saveBtn.disabled = false;
     }
   });
 }
@@ -746,14 +636,12 @@ function setupUtilityButtons() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   setupInstallPrompt();
-  setupLocationLookup();
+  setupManualSetup();
   setupUtilityButtons();
 
   render(loadSettings());
 
   try {
     await registerServiceWorker();
-  } catch (err) {
-    console.error("Service worker failed:", err);
-  }
+  } catch {}
 });
