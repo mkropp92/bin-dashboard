@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV11";
+const STORAGE_KEY = "binDashboardSettingsV12";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -19,7 +19,8 @@ const defaultSettings = {
   invertAlternateCycle: true,
   latitude: -26.6500,
   longitude: 153.0667,
-  lastLookupAt: ""
+  lastLookupAt: "",
+  notificationsEnabled: false
 };
 
 let deferredInstallPrompt = null;
@@ -89,6 +90,10 @@ function normalizeWhitespace(s) {
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 
 function isCollectionDay(date, dow) {
@@ -213,9 +218,9 @@ async function ensureNotificationsFromUserAction() {
 }
 
 async function showNotification(title, body) {
-  if (!("serviceWorker" in navigator)) return;
-  if (!("Notification" in window)) return;
-  if (Notification.permission !== "granted") return;
+  if (!("serviceWorker" in navigator)) return false;
+  if (!("Notification" in window)) return false;
+  if (Notification.permission !== "granted") return false;
 
   const reg = await navigator.serviceWorker.ready;
   await reg.showNotification(title, {
@@ -223,6 +228,14 @@ async function showNotification(title, body) {
     icon: "./icons/icon.svg",
     badge: "./icons/icon.svg"
   });
+  return true;
+}
+
+async function showWelcomeNotification() {
+  return await showNotification(
+    "Welcome",
+    "You will now start receiving notifications the night before collection"
+  );
 }
 
 function maybeSendBinReminder(nextCollectionDateIso) {
@@ -390,7 +403,7 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-function featureToSettings(attrs, currentLat, currentLon) {
+function featureToSettings(attrs, currentLat, currentLon, notificationsEnabled) {
   const dow = getDowIndexFromName(attrs.CollectionDay);
   if (dow < 0) {
     throw new Error("Lookup succeeded but collection day was missing.");
@@ -408,11 +421,12 @@ function featureToSettings(attrs, currentLat, currentLon) {
     invertAlternateCycle: true,
     latitude: featureLat,
     longitude: featureLon,
-    lastLookupAt: new Date().toISOString()
+    lastLookupAt: new Date().toISOString(),
+    notificationsEnabled: !!notificationsEnabled
   };
 }
 
-async function fetchCouncilBinScheduleByCurrentLocation(lat, lon) {
+async function fetchCouncilBinScheduleByCurrentLocation(lat, lon, notificationsEnabled) {
   let features = await runCouncilQueryByLocation(lat, lon);
 
   if (!features.length) {
@@ -432,7 +446,7 @@ async function fetchCouncilBinScheduleByCurrentLocation(lat, lon) {
     })
     .sort((a, b) => a.dist - b.dist);
 
-  return featureToSettings(ranked[0].attrs, lat, lon);
+  return featureToSettings(ranked[0].attrs, lat, lon, notificationsEnabled);
 }
 
 function getCurrentPositionPromise() {
@@ -468,7 +482,7 @@ function render(settings = loadSettings()) {
       ? `Region: <b>Sunshine Coast</b><br>
          Area: <b>${htmlEscape(settings.locality || "Unknown")}</b><br>
          Collection day: <b>${htmlEscape(DOW_NAMES[settings.dow])}</b><br>
-         Alternate cycle: <b>Flipped</b>`
+         Notifications: <b>${settings.notificationsEnabled ? "On" : "Off"}</b>`
       : "Schedule not configured yet for Sunshine Coast.";
   }
 
@@ -616,7 +630,8 @@ function setupLocationLookup() {
     status.innerHTML = `<span class="warn">Getting your location…</span>`;
 
     try {
-      await ensureNotificationsFromUserAction();
+      const permission = await ensureNotificationsFromUserAction();
+      const notificationsEnabled = permission === "granted";
 
       const position = await getCurrentPositionPromise();
       const lat = position.coords.latitude;
@@ -624,11 +639,16 @@ function setupLocationLookup() {
 
       status.innerHTML = `<span class="warn">Finding nearby Sunshine Coast bin collection area…</span>`;
 
-      const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon);
+      const result = await fetchCouncilBinScheduleByCurrentLocation(lat, lon, notificationsEnabled);
       saveSettings(result);
-
-      status.innerHTML = `<span class="success">Location lookup successful.</span>`;
       render(result);
+
+      if (notificationsEnabled) {
+        await showWelcomeNotification();
+        status.innerHTML = `<span class="success">Location lookup successful. Notifications are on.</span>`;
+      } else {
+        status.innerHTML = `<span class="warn">Location lookup successful. Notifications are not enabled.</span>`;
+      }
     } catch (err) {
       console.error(err);
       status.innerHTML = `<span class="error">${htmlEscape(err.message || "Location lookup failed.")}</span>`;
