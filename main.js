@@ -5,7 +5,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const STORAGE_KEY = "binDashboardSettingsV4";
+const STORAGE_KEY = "binDashboardSettingsV5";
 const WEATHER_CACHE_KEY = "binDashboardWeatherCacheV1";
 const SCC_LAYER_URL =
   "https://geopublic.scc.qld.gov.au/arcgis/rest/services/Health/DomesticBinCollectionDays_SCRC/MapServer/0/query";
@@ -131,6 +131,8 @@ function cleanStreetName(streetName) {
 
 function parseAddressInput(input) {
   const text = normalizeWhitespace(input);
+  if (!text) return null;
+
   const match = text.match(/^(\d+)\s+(.+)$/);
   if (!match) return null;
 
@@ -436,19 +438,26 @@ async function runCouncilQuery(where, limit = 20) {
 }
 
 function scoreFeature(attrs, wanted) {
+  const address = normalizeWhitespace(attrs.Address || "").toUpperCase();
   const street = cleanStreetName(attrs.Streetname || "");
   const loc = cleanLocality(attrs.Locality || "");
   const num = String(attrs.Property_Number || "");
 
+  const wantedStreet = cleanStreetName(wanted.streetName);
+  const wantedLoc = cleanLocality(wanted.locality);
+  const wantedNum = String(wanted.propertyNumber).trim();
+
   let score = 0;
 
-  if (num === wanted.propertyNumber) score += 100;
-  if (loc === cleanLocality(wanted.locality)) score += 50;
-
-  const wantedStreet = cleanStreetName(wanted.streetName);
+  if (num === wantedNum) score += 100;
+  if (loc === wantedLoc) score += 50;
   if (street === wantedStreet) score += 40;
   if (street.startsWith(wantedStreet)) score += 20;
   if (street.includes(wantedStreet)) score += 10;
+
+  if (address.includes(wantedNum.toUpperCase())) score += 10;
+  if (address.includes(wantedStreet.replaceAll("''", "'"))) score += 15;
+  if (address.includes(wantedLoc.replaceAll("''", "'"))) score += 10;
 
   return score;
 }
@@ -475,67 +484,84 @@ function featureToSettings(attrs, original) {
   };
 }
 
-async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
-  const num = String(propertyNumber).trim();
-  const loc = cleanLocality(locality);
+function buildAddressLikeWhere(parsed) {
+  const num = String(parsed.propertyNumber).trim();
+  const street = cleanStreetName(parsed.streetName).replaceAll("''", "'");
+  const locality = cleanLocality(parsed.locality).replaceAll("''", "'");
 
-  const exactWhere = `Property_Number=${Number(num)} AND UPPER(Locality)='${loc}'`;
-  let features = await runCouncilQuery(exactWhere, 50);
+  const addressBits = [num, street, locality]
+    .filter(Boolean)
+    .map(s => s.replaceAll("'", "''"));
+
+  return addressBits.map(bit => `UPPER(Address) LIKE '%${bit}%'`).join(" AND ");
+}
+
+async function fetchCouncilBinSchedule(propertyNumber, streetName, locality) {
+  const parsed = {
+    propertyNumber: String(propertyNumber).trim(),
+    streetName: normalizeWhitespace(streetName),
+    locality: normalizeWhitespace(locality || "Nambour")
+  };
+
+  let features = await runCouncilQuery(buildAddressLikeWhere(parsed), 100);
 
   if (!features.length) {
-    features = await runCouncilQuery(`Property_Number=${Number(num)}`, 100);
+    const street = cleanStreetName(parsed.streetName);
+    const loc = cleanLocality(parsed.locality);
+    const num = Number(parsed.propertyNumber);
+
+    const fallbackWhere =
+      `Property_Number=${num} AND ` +
+      `UPPER(Locality)='${loc}' AND ` +
+      `UPPER(Streetname) LIKE '%${street}%'`;
+
+    features = await runCouncilQuery(fallbackWhere, 100);
   }
 
   if (!features.length) {
-    throw new Error("No property found with that house number.");
+    throw new Error("No matching address found. Try house number, abbreviated street type, and locality.");
   }
 
   const ranked = [...features]
     .map(f => ({
       feature: f,
-      score: scoreFeature(f.attributes || {}, { propertyNumber: num, streetName, locality })
+      score: scoreFeature(f.attributes || {}, parsed)
     }))
     .sort((a, b) => b.score - a.score);
 
-  if (!ranked.length || ranked[0].score < 10) {
-    throw new Error("House number found, but street name did not match well enough.");
+  if (!ranked.length || ranked[0].score < 20) {
+    throw new Error("Address candidates were found, but none matched strongly enough.");
   }
 
-  return featureToSettings(ranked[0].feature.attributes || {}, { propertyNumber: num, streetName, locality });
+  return featureToSettings(ranked[0].feature.attributes || {}, parsed);
 }
 
 async function searchAddressSuggestions(query) {
   const parsed = parseAddressInput(query);
   if (!parsed) return [];
 
-  const propertyNumber = Number(parsed.propertyNumber);
-  const locality = cleanLocality(parsed.locality);
-  const street = cleanStreetName(parsed.streetName);
-
-  let features = await runCouncilQuery(
-    `Property_Number=${propertyNumber} AND UPPER(Locality)='${locality}'`,
-    50
-  );
+  let features = await runCouncilQuery(buildAddressLikeWhere(parsed), 50);
 
   if (!features.length) {
-    features = await runCouncilQuery(`Property_Number=${propertyNumber}`, 100);
+    const street = cleanStreetName(parsed.streetName);
+    const loc = cleanLocality(parsed.locality);
+    const num = Number(parsed.propertyNumber);
+
+    features = await runCouncilQuery(
+      `Property_Number=${num} AND UPPER(Locality)='${loc}' AND UPPER(Streetname) LIKE '%${street}%'`,
+      50
+    );
   }
 
   const ranked = features
     .map(f => {
       const attrs = f.attributes || {};
-      const streetDb = cleanStreetName(attrs.Streetname || "");
-      const locDb = cleanLocality(attrs.Locality || "");
-      let score = 0;
-
-      if (locDb === locality) score += 50;
-      if (streetDb === street) score += 40;
-      if (streetDb.startsWith(street)) score += 25;
-      if (streetDb.includes(street)) score += 10;
-
-      return { attrs, score };
+      return {
+        attrs,
+        score: scoreFeature(attrs, parsed)
+      };
     })
-    .filter(x => x.score >= 10)
+    .filter(x => x.score >= 15)
     .sort((a, b) => b.score - a.score);
 
   const unique = [];
@@ -629,95 +655,99 @@ function render(settings = loadSettings()) {
   }
 
   const upcomingList = document.getElementById("upcomingList");
-  upcomingList.innerHTML = "";
-  upcoming.slice(0, 8).forEach(ev => {
-    const s = secondaryChip(ev, settings.ready);
-    const row = document.createElement("div");
-    row.className = "up-item";
-    row.innerHTML = `
-      <div>
-        <div class="up-title">${htmlEscape(ev.prettyShort)}</div>
-        <div class="up-sub">General Waste + ${htmlEscape(s.text)}</div>
-      </div>
-      <div>
-        <span class="chip bin-red">General</span>
-        <span class="chip ${htmlEscape(s.cls)}">${htmlEscape(s.text)}</span>
-      </div>
-    `;
-    upcomingList.appendChild(row);
-  });
+  if (upcomingList) {
+    upcomingList.innerHTML = "";
+    upcoming.slice(0, 8).forEach(ev => {
+      const s = secondaryChip(ev, settings.ready);
+      const row = document.createElement("div");
+      row.className = "up-item";
+      row.innerHTML = `
+        <div>
+          <div class="up-title">${htmlEscape(ev.prettyShort)}</div>
+          <div class="up-sub">General Waste + ${htmlEscape(s.text)}</div>
+        </div>
+        <div>
+          <span class="chip bin-red">General</span>
+          <span class="chip ${htmlEscape(s.cls)}">${htmlEscape(s.text)}</span>
+        </div>
+      `;
+      upcomingList.appendChild(row);
+    });
+  }
 
   const calendar = document.getElementById("calendar");
   const title = document.getElementById("monthTitle");
-  calendar.innerHTML = "";
+  if (calendar && title) {
+    calendar.innerHTML = "";
 
-  const map = {};
-  upcoming.forEach(ev => {
-    map[ev.iso] = ev;
-  });
+    const map = {};
+    upcoming.forEach(ev => {
+      map[ev.iso] = ev;
+    });
 
-  const y = today.getFullYear();
-  const m = today.getMonth();
-  title.textContent = `${MONTH_NAMES[m]} ${y}`;
+    const y = today.getFullYear();
+    const m = today.getMonth();
+    title.textContent = `${MONTH_NAMES[m]} ${y}`;
 
-  DOW_SHORT.forEach(d => {
-    const h = document.createElement("div");
-    h.className = "dow";
-    h.textContent = d;
-    calendar.appendChild(h);
-  });
+    DOW_SHORT.forEach(d => {
+      const h = document.createElement("div");
+      h.className = "dow";
+      h.textContent = d;
+      calendar.appendChild(h);
+    });
 
-  const first = new Date(y, m, 1, 12, 0, 0);
-  const firstDow = first.getDay();
-  const lastDay = new Date(y, m + 1, 0).getDate();
+    const first = new Date(y, m, 1, 12, 0, 0);
+    const firstDow = first.getDay();
+    const lastDay = new Date(y, m + 1, 0).getDate();
 
-  for (let i = 0; i < firstDow; i++) {
-    const blank = document.createElement("div");
-    blank.className = "day blank";
-    calendar.appendChild(blank);
-  }
-
-  for (let d = 1; d <= lastDay; d++) {
-    const cell = document.createElement("div");
-    cell.className = "day";
-    const iso = `${y}-${pad(m + 1)}-${pad(d)}`;
-
-    if (iso === toIso(today)) cell.classList.add("today");
-
-    const num = document.createElement("div");
-    num.className = "num";
-    num.textContent = d;
-    cell.appendChild(num);
-
-    const ev = map[iso];
-    if (ev) {
-      const g = document.createElement("div");
-      g.className = "mini";
-      g.style.background = "#ef4444";
-      g.style.color = "#fff";
-      g.textContent = "General";
-      cell.appendChild(g);
-
-      const s = secondaryChip(ev, settings.ready);
-      const sec = document.createElement("div");
-      sec.className = "mini";
-
-      if (s.cls === "bin-yellow") {
-        sec.style.background = "#facc15";
-        sec.style.color = "#111827";
-      } else if (s.cls === "bin-lime") {
-        sec.style.background = "#84cc16";
-        sec.style.color = "#111827";
-      } else {
-        sec.style.background = "#49b6ff";
-        sec.style.color = "#08243b";
-      }
-
-      sec.textContent = s.text;
-      cell.appendChild(sec);
+    for (let i = 0; i < firstDow; i++) {
+      const blank = document.createElement("div");
+      blank.className = "day blank";
+      calendar.appendChild(blank);
     }
 
-    calendar.appendChild(cell);
+    for (let d = 1; d <= lastDay; d++) {
+      const cell = document.createElement("div");
+      cell.className = "day";
+      const iso = `${y}-${pad(m + 1)}-${pad(d)}`;
+
+      if (iso === toIso(today)) cell.classList.add("today");
+
+      const num = document.createElement("div");
+      num.className = "num";
+      num.textContent = d;
+      cell.appendChild(num);
+
+      const ev = map[iso];
+      if (ev) {
+        const g = document.createElement("div");
+        g.className = "mini";
+        g.style.background = "#ef4444";
+        g.style.color = "#fff";
+        g.textContent = "General";
+        cell.appendChild(g);
+
+        const s = secondaryChip(ev, settings.ready);
+        const sec = document.createElement("div");
+        sec.className = "mini";
+
+        if (s.cls === "bin-yellow") {
+          sec.style.background = "#facc15";
+          sec.style.color = "#111827";
+        } else if (s.cls === "bin-lime") {
+          sec.style.background = "#84cc16";
+          sec.style.color = "#111827";
+        } else {
+          sec.style.background = "#49b6ff";
+          sec.style.color = "#08243b";
+        }
+
+        sec.textContent = s.text;
+        cell.appendChild(sec);
+      }
+
+      calendar.appendChild(cell);
+    }
   }
 }
 
@@ -725,6 +755,8 @@ function setupAddressSearch() {
   const input = document.getElementById("addressSearch");
   const form = document.getElementById("lookupForm");
   const status = document.getElementById("lookupStatus");
+
+  if (!input || !form || !status) return;
 
   input.addEventListener("input", () => {
     selectedSuggestion = null;
@@ -770,7 +802,7 @@ function setupAddressSearch() {
       if (!chosen) {
         const parsed = parseAddressInput(input.value);
         if (!parsed) {
-          throw new Error("Enter an address like: 57 Solandra, Nambour");
+          throw new Error("Enter an address like: 57 Solandra Dr, Nambour");
         }
         chosen = parsed;
       }
@@ -792,18 +824,25 @@ function setupAddressSearch() {
 }
 
 function setupUtilityButtons() {
-  document.getElementById("flipCycleBtn").addEventListener("click", () => {
-    const settings = loadSettings();
-    settings.invertAlternateCycle = !settings.invertAlternateCycle;
-    saveSettings(settings);
-    render(settings);
-  });
+  const flipBtn = document.getElementById("flipCycleBtn");
+  const resetBtn = document.getElementById("resetBtn");
 
-  document.getElementById("resetBtn").addEventListener("click", () => {
-    resetSettings();
-    selectedSuggestion = null;
-    render(loadSettings());
-  });
+  if (flipBtn) {
+    flipBtn.addEventListener("click", () => {
+      const settings = loadSettings();
+      settings.invertAlternateCycle = !settings.invertAlternateCycle;
+      saveSettings(settings);
+      render(settings);
+    });
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      resetSettings();
+      selectedSuggestion = null;
+      render(loadSettings());
+    });
+  }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
