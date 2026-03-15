@@ -1,13 +1,24 @@
-const CACHE="bin-dashboard-v1";
-
-self.addEventListener("install",e=>{
-self.skipWaiting();
-});
-
-self.addEventListener("activate",e=>{
-self.clients.claim();
-});
-
-self.addEventListener("fetch",e=>{
-return;
-});
+{
+  "name": "Sunshine Coast Bin Dashboard",
+  "short_name": "Bin Dashboard",
+  "description": "Sunshine Coast bin collection schedule.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f8fc",
+  "theme_color": "#e9f2ff",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
